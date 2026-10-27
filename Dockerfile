@@ -13,7 +13,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -tags=embed_web -trimpa
 FROM scratch
 LABEL org.opencontainers.image.title="ZenNotes" \
       org.opencontainers.image.description="Self-hosted ZenNotes server with a pinned browser artifact." \
-      org.opencontainers.image.source="https://github.com/ZenNotes/znserver"
+      org.opencontainers.image.source="https://github.com/maxzhao/znserver"
 COPY --from=build /out/zennotes-server /zennotes-server
 ENV ZENNOTES_BIND=0.0.0.0:7878 \
     ZENNOTES_CONFIG_PATH=/data/server.json \

@@ -3,14 +3,14 @@
   "artifact": "zennotes-self-hosted-web",
   "protocol": "self-hosted-http-v1",
   "source": {
-    "repository": "https://github.com/ZenNotes/zennotes",
+    "repository": "https://github.com/maxzhao/zennotes",
     "commit": "3f0356de0d9351d9414ffd103cfd5d919c122cc3",
     "dirty": false,
     "lockfileSha256": "359935dfa6dcf79d4f921e2026ed7368f7e389335f94dd4006c2ab12cbca3ea5"
   },
   "toolchain": {
-    "node": "v22.23.3",
-    "npm": "10.9.9"
+    "node": "v24.12.0",
+    "npm": "11.6.2"
   },
   "entrypoints": [
     "index.html",
@@ -2939,11 +2939,10 @@
       "sha256": "c94cd260cd3c07cfc5474f1e83f84623fd51ba1d11bfb7c31fabb8b0c828204d"
     }
   ],
-  "version": "2.77.0-web.h7401d7675ced65e4",
+  "version": "2.77.0-web.h2bdea16243401b0c",
   "archive": {
-    "file": "zennotes-self-hosted-web-2.77.0-web.h7401d7675ced65e4.tgz",
+    "file": "zennotes-self-hosted-web-2.77.0-web.h2bdea16243401b0c.tgz",
     "size": 46228332,
-    "sha256": "97827aa9d47f9847008575370ee65a673ee397348406039cb7722c817bac711b",
-    "url": "https://github.com/ZenNotes/zennotes/releases/download/web-2.77.0-web.h7401d7675ced65e4/zennotes-self-hosted-web-2.77.0-web.h7401d7675ced65e4.tgz"
+    "sha256": "a296c19a8af97c59216a17632d569ef16dcab2f7806dfc42a265ba30b582f9a0"
   }
 }

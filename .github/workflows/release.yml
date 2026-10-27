@@ -1,52 +1,82 @@
-name: Prepare server release
+name: Prepare Maxa fork server release
 on:
   workflow_dispatch:
     inputs:
       source_commit:
-        description: Reviewed full source commit SHA
+        description: Reviewed full maxzhao/znserver commit SHA
+        type: string
+        required: true
+      web_commit:
+        description: Reviewed full maxzhao/zennotes commit SHA to build and embed
         type: string
         required: true
       tag:
-        description: New server release tag (vX.Y.Z)
+        description: Fork server tag (vX.Y.Z-maxa.N)
         type: string
         required: true
 permissions:
   contents: read
 jobs:
   binaries:
+    if: github.repository == 'maxzhao/znserver'
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: auto
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.source_commit }}
+          path: server
+      - uses: actions/checkout@v6
+        with:
+          repository: maxzhao/zennotes
+          ref: ${{ inputs.web_commit }}
+          path: browser
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
-      - env:
+          go-version-file: server/go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: browser/package-lock.json
+      - name: Validate immutable source pins and fork version
+        env:
           SOURCE_COMMIT: ${{ inputs.source_commit }}
+          WEB_COMMIT: ${{ inputs.web_commit }}
           TAG: ${{ inputs.tag }}
         run: |
-          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
-          printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
-          test "$TAG" = "v$(python3 -c 'import json; print(json.load(open("release.json"))["version"])')"
+          printf '%s' "$SOURCE_COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          printf '%s' "$WEB_COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          test "$(git -C server rev-parse HEAD)" = "$SOURCE_COMMIT"
+          test "$(git -C browser rev-parse HEAD)" = "$WEB_COMMIT"
+          printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-maxa\.[0-9]+$'
+          test "$TAG" = "v$(node -p 'require("./server/release.json").version')"
+      - run: npm ci && npm run artifact:web
+        working-directory: browser
+      - name: Pin the locally built fork artifact
+        env:
+          WEB_COMMIT: ${{ inputs.web_commit }}
+        run: |
+          node server/scripts/pin-fork-web.mjs browser/dist/web-artifacts server/web-artifact "$WEB_COMMIT"
       - run: go vet ./... && go test ./...
-      - run: go run ./cmd/prepare-web -manifest web-artifact/manifest.json -output web/dist
-      - run: go test -tags=embed_web ./web
-      - name: Cross-compile binaries and checksums
+        working-directory: server
+      - run: go run ./cmd/prepare-web -manifest web-artifact/manifest.json -output web/dist && go test -tags=embed_web ./web
+        working-directory: server
+      - name: Cross-compile Linux binaries and checksums
+        working-directory: server
         run: |
           mkdir release
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
-            os="${target%/*}"
-            arch="${target#*/}"
-            suffix=""; if [ "$os" = windows ]; then suffix=.exe; fi
-            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -tags=embed_web -trimpath -ldflags="-s -w" -o "release/zennotes-server-$os-$arch$suffix" ./cmd/zennotes-server
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags=embed_web -trimpath -ldflags="-s -w" -o "release/zennotes-server-linux-$arch" ./cmd/zennotes-server
           done
           cp LICENSE web-artifact/manifest.json release/
-          cd release && sha256sum zennotes-server-* > SHA256SUMS
+          cd release && sha256sum zennotes-server-linux-* > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: server-release
-          path: release/*
+          path: server/release/*
   draft:
     needs: binaries
     runs-on: ubuntu-latest
@@ -60,7 +90,8 @@ jobs:
           path: release
       - env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          GH_REPO: maxzhao/znserver
           TAG: ${{ inputs.tag }}
           SOURCE_COMMIT: ${{ inputs.source_commit }}
-        run: gh release create "$TAG" release/* --target "$SOURCE_COMMIT" --title "$TAG" --draft --notes "Self-hosted server with a pinned browser artifact. Complete candidate install and rollback checks before publication."
+          WEB_COMMIT: ${{ inputs.web_commit }}
+        run: gh release create "$TAG" release/* --target "$SOURCE_COMMIT" --title "$TAG" --draft --notes "Maxa fork; embedded maxzhao/zennotes commit $WEB_COMMIT. Publish only after candidate install and rollback review."

@@ -20,6 +20,8 @@ env:
 
 jobs:
   publish:
+    # Fork binaries are released separately; never publish to the upstream image.
+    if: github.repository == 'ZenNotes/znserver'
     name: Build and push multi-arch image
     runs-on: ubuntu-latest
     environment: server-docker-publisher

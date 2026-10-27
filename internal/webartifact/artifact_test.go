@@ -64,7 +64,7 @@ func candidate(t *testing.T, entries []entry, change func(*Manifest)) (string, s
 	manifest := Manifest{
 		SchemaVersion: 1, Artifact: "zennotes-self-hosted-web", Version: "1.0.0-test",
 		Protocol:    "self-hosted-http-v1",
-		Source:      Source{Repository: "https://github.com/ZenNotes/zennotes", Commit: strings.Repeat("a", 40), Dirty: dirty(false)},
+		Source:      Source{Repository: "https://github.com/maxzhao/zennotes", Commit: strings.Repeat("a", 40), Dirty: dirty(false)},
 		Archive:     Archive{File: "web.tgz", Size: int64(buffer.Len()), SHA256: digest(buffer.Bytes())},
 		Entrypoints: []string{"index.html"},
 		Files:       []File{{Path: "index.html", Size: 5, SHA256: digest([]byte("hello"))}},

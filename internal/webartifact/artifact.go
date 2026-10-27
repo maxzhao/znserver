@@ -153,7 +153,7 @@ func ReadManifest(path string, allowDirty bool) (Manifest, error) {
 	if manifest.SchemaVersion != 1 || manifest.Artifact != "zennotes-self-hosted-web" || manifest.Protocol != "self-hosted-http-v1" {
 		return manifest, errors.New("unsupported browser artifact or protocol")
 	}
-	if manifest.Version == "" || !commit.MatchString(manifest.Source.Commit) || manifest.Source.Repository != "https://github.com/ZenNotes/zennotes" {
+	if manifest.Version == "" || !commit.MatchString(manifest.Source.Commit) || manifest.Source.Repository != "https://github.com/maxzhao/zennotes" {
 		return manifest, errors.New("invalid artifact provenance")
 	}
 	if manifest.Source.Dirty == nil {
@@ -228,6 +228,9 @@ func openArchive(ctx context.Context, manifestPath, override string, archive Arc
 	}
 	if !os.IsNotExist(err) {
 		return nil, err
+	}
+	if u, err := url.Parse(archive.URL); err == nil && u.Hostname() == "github.com" && !strings.HasPrefix(u.Path, "/maxzhao/zennotes/releases/download/") {
+		return nil, errors.New("browser archives must come from maxzhao/zennotes fork releases")
 	}
 	if err := validateHTTPS(archive.URL); err != nil {
 		return nil, err
