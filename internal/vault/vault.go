@@ -192,6 +192,7 @@ type Vault struct {
 	maxAssetBytes int64
 	mu            sync.RWMutex
 	mutationMu    sync.Mutex
+	links         linkCache
 	searchCacheMu sync.Mutex
 	searchCache   *textSearchCache
 	metaCacheMu   sync.Mutex
@@ -288,6 +289,7 @@ func (v *Vault) invalidateNoteMetaCache() {
 }
 
 func (v *Vault) invalidateTextSearchCache() {
+	v.InvalidateLinks("")
 	v.searchCacheMu.Lock()
 	v.searchCache = nil
 	v.searchCacheMu.Unlock()
@@ -1655,11 +1657,11 @@ func (v *Vault) writeNoteLocked(rel, body string) (NoteMeta, error) {
 	if err := writeFileAtomic(abs, []byte(body), v.fileMode, v.dirMode); err != nil {
 		return NoteMeta{}, err
 	}
+	v.InvalidateLinks(rel)
 	v.invalidateTextSearchCache()
 	folder, _ := v.folderOf(abs)
 	return v.readMeta(folder, abs)
 }
-
 func newCommentID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err == nil {

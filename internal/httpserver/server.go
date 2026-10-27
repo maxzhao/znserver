@@ -64,7 +64,7 @@ func New(v *vault.Vault, w *watcher.Watcher, static fs.FS, cfg config.Config) *S
 	if cfg.PersistSessions {
 		sessionsPath = config.SessionsPath()
 	}
-	return &Server{
+	server := &Server{
 		Vault:           v,
 		Watcher:         w,
 		Static:          static,
@@ -73,6 +73,8 @@ func New(v *vault.Vault, w *watcher.Watcher, static fs.FS, cfg config.Config) *S
 		loginLimiter:    newAttemptLimiter(10*time.Minute, 10),
 		wsRejectLimiter: newAttemptLimiter(1*time.Minute, 20),
 	}
+	watchLinkIndex(v, w)
+	return server
 }
 
 func (s *Server) currentVault() *vault.Vault {
@@ -106,6 +108,7 @@ func (s *Server) switchVaultRoot(nextPath string) (*vault.Vault, error) {
 	// Non-fatal: a vault switch must not fail just because inotify is
 	// unavailable; fall back to a no-op watcher in that case. (#179)
 	nextWatcher := watcher.StartOrDisabled(nextVault.Root(), cfg.DisableWatcher)
+	watchLinkIndex(nextVault, nextWatcher)
 
 	s.mu.Lock()
 	prevWatcher := s.Watcher

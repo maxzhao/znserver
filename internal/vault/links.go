@@ -33,6 +33,10 @@ type LinkIndex struct {
 	References []Reference
 	targets    []linkTarget
 	Notes      []NoteMeta
+	outgoing   map[string][]Reference
+	backlinks  map[string][]Reference
+	unresolved []Reference
+	orphans    []map[string]string
 }
 
 var wikiReferenceRE = regexp.MustCompile(`!?\[\[([^\]\n]+)\]\]`)
@@ -255,95 +259,43 @@ func (idx *LinkIndex) resolve(target string, exactOnly bool) (string, []string) 
 	return "", []string{}
 }
 
-// Read bytes at request time rather than trusting cached wikilinks or mtimes.
-func (v *Vault) Links() (*LinkIndex, error) {
-	notes, err := v.ListNotes()
-	if err != nil {
-		return nil, err
-	}
-	assets, err := v.ListAssets()
-	if err != nil {
-		return nil, err
-	}
-	idx := &LinkIndex{References: []Reference{}, Notes: []NoteMeta{}}
-	for _, n := range notes {
-		if n.Folder == FolderTrash {
-			continue
-		}
-		content, err := v.ReadNote(n.Path)
-		if err != nil {
-			return nil, err
-		}
-		idx.Notes = append(idx.Notes, content.NoteMeta)
-		idx.targets = append(idx.targets, linkTarget{n.Path, n.Title, content.Aliases})
-		if strings.EqualFold(path.Ext(n.Path), ".md") || isCanvasName(n.Path) {
-			idx.References = append(idx.References, extractReferences(n.Path, content.Body)...)
-		}
-	}
-	for _, a := range assets {
-		settings, _ := v.GetSettings()
-		folder, _ := FolderForRelativePathWithSettings(a.Path, settings.SystemFolderPaths)
-		if folder == FolderTrash {
-			continue
-		}
-		idx.targets = append(idx.targets, linkTarget{path: a.Path, title: a.Name})
-	}
-	for i := range idx.References {
-		r := &idx.References[i]
-		resolved, candidates := idx.resolve(r.target, r.Kind == "markdown")
-		r.Status = "missing"
-		r.Candidates = candidates
-		if resolved != "" {
-			r.Status = "resolved"
-			r.Path = &resolved
-		} else if len(candidates) > 1 {
-			r.Status = "ambiguous"
-		}
-	}
-	return idx, nil
-}
+// Links shares one incremental filesystem refresh across concurrent requests.
+// The returned snapshot is immutable; refreshes never hold Vault.mu.
+func (v *Vault) Links() (*LinkIndex, error) { return v.cachedLinks() }
 
-func (idx *LinkIndex) Outgoing(p string) []Reference {
-	out := []Reference{}
-	for _, r := range idx.References {
-		if r.Source == p {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-func (idx *LinkIndex) Backlinks(p string) []Reference {
-	out := []Reference{}
-	for _, r := range idx.References {
-		if r.Path != nil && *r.Path == p {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-func (idx *LinkIndex) Unresolved() []Reference {
-	out := []Reference{}
-	for _, r := range idx.References {
-		if r.Status != "resolved" {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-func (idx *LinkIndex) Orphans() []map[string]string {
+func (idx *LinkIndex) prepareQueries() {
+	idx.outgoing = map[string][]Reference{}
+	idx.backlinks = map[string][]Reference{}
+	idx.unresolved = []Reference{}
+	idx.orphans = []map[string]string{}
 	inbound := map[string]bool{}
 	for _, r := range idx.References {
-		if r.Path != nil && r.Source != *r.Path {
-			inbound[*r.Path] = true
+		idx.outgoing[r.Source] = append(idx.outgoing[r.Source], r)
+		if r.Path != nil {
+			idx.backlinks[*r.Path] = append(idx.backlinks[*r.Path], r)
+			if r.Source != *r.Path {
+				inbound[*r.Path] = true
+			}
+		}
+		if r.Status != "resolved" {
+			idx.unresolved = append(idx.unresolved, r)
 		}
 	}
-	out := []map[string]string{}
 	for _, n := range idx.Notes {
 		if !inbound[n.Path] && !isExcalidrawName(n.Path) {
-			out = append(out, map[string]string{"path": n.Path})
+			idx.orphans = append(idx.orphans, map[string]string{"path": n.Path})
 		}
 	}
-	return out
+}
+func (idx *LinkIndex) Outgoing(p string) []Reference {
+	return append([]Reference{}, idx.outgoing[p]...)
+}
+func (idx *LinkIndex) Backlinks(p string) []Reference {
+	return append([]Reference{}, idx.backlinks[p]...)
+}
+func (idx *LinkIndex) Unresolved() []Reference { return append([]Reference{}, idx.unresolved...) }
+func (idx *LinkIndex) Orphans() []map[string]string {
+	return append([]map[string]string{}, idx.orphans...)
 }
 
 // RewriteError explicitly exposes every file not rewritten after a relocation.
