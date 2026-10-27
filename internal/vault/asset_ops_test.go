@@ -196,12 +196,12 @@ func TestRenameAssetRewritesReferences(t *testing.T) {
 	}
 	writeAsset(t, root, "assets/shot.png", "PNG")
 	writeAsset(t, root, "assets/other.png", "PNG")
-	body := "![[assets/shot.png]] ![[assets/shot.png|300]] ![alt](assets/shot.png \"Shot\") [[assets/shot.png|open]] ![[shot.png]]\n\n`![[assets/shot.png]]` ![[assets/other.png]]\n"
+	body := "![[assets/shot.png]] ![[assets/shot.png|300]] ![alt](../assets/shot.png \"Shot\") [[assets/shot.png|open]] ![[shot.png]]\n\n`![[assets/shot.png]]` ![[assets/other.png]]\n"
 	if _, err := v.WriteNote("inbox/Embeds.md", body); err != nil {
 		t.Fatal(err)
 	}
 	// A plain file link is neither an embed nor a note wikilink: HasAttachments carries it.
-	if _, err := v.WriteNote("inbox/Bare.md", "See [the file](shot.png).\n"); err != nil {
+	if _, err := v.WriteNote("inbox/Bare.md", "See [the file](../assets/shot.png).\n"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := v.WriteNote("inbox/Plain.md", "No pictures, just [[Embeds]].\n"); err != nil {
@@ -224,7 +224,7 @@ func TestRenameAssetRewritesReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "![[assets/screenshot.png]] ![[assets/screenshot.png|300]] ![alt](assets/screenshot.png \"Shot\") [[assets/screenshot.png|open]] ![[screenshot.png]]\n\n`![[assets/shot.png]]` ![[assets/other.png]]\n"
+	want := "![[assets/screenshot.png]] ![[assets/screenshot.png|300]] ![alt](../assets/screenshot.png \"Shot\") [[assets/screenshot.png|open]] ![[screenshot.png]]\n\n`![[assets/shot.png]]` ![[assets/other.png]]\n"
 	if got.Body != want {
 		t.Fatalf("Embeds after rename =\n%q\nwant\n%q", got.Body, want)
 	}
@@ -232,7 +232,7 @@ func TestRenameAssetRewritesReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bare.Body != "See [the file](screenshot.png).\n" {
+	if bare.Body != "See [the file](../assets/screenshot.png).\n" {
 		t.Fatalf("Bare after rename = %q", bare.Body)
 	}
 	plainAfter, err := os.Stat(filepath.Join(root, "inbox", "Plain.md"))

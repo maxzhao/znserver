@@ -127,11 +127,11 @@ func (s *Server) Router() http.Handler {
 	inner.Route("/api", func(r chi.Router) {
 		r.Get("/healthz", s.healthz)
 		r.Get("/version", s.version)
-		r.Get("/capabilities", s.capabilities)
-		r.Get("/platform", s.platform)
-		r.Get("/session", s.sessionStatus)
+		r.With(s.requireAuth).Get("/capabilities", s.capabilities)
+		r.With(s.requireAuth).Get("/platform", s.platform)
+		r.With(s.requireAuth).Get("/session", s.sessionStatus)
 		r.Post("/session/login", s.sessionLogin)
-		r.Post("/session/logout", s.sessionLogout)
+		r.With(s.requireAuth).Post("/session/logout", s.sessionLogout)
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAuth)
@@ -143,11 +143,11 @@ func (s *Server) Router() http.Handler {
 	// still works during partial restarts or when an older bundle is cached.
 	inner.Get("/healthz", s.healthz)
 	inner.Get("/version", s.version)
-	inner.Get("/capabilities", s.capabilities)
-	inner.Get("/platform", s.platform)
-	inner.Get("/session", s.sessionStatus)
+	inner.With(s.requireAuth).Get("/capabilities", s.capabilities)
+	inner.With(s.requireAuth).Get("/platform", s.platform)
+	inner.With(s.requireAuth).Get("/session", s.sessionStatus)
 	inner.Post("/session/login", s.sessionLogin)
-	inner.Post("/session/logout", s.sessionLogout)
+	inner.With(s.requireAuth).Post("/session/logout", s.sessionLogout)
 	inner.Group(func(r chi.Router) {
 		r.Use(s.requireAuth)
 		s.registerProtectedRoutes(r)
@@ -178,6 +178,14 @@ func (s *Server) Router() http.Handler {
 }
 
 func (s *Server) registerProtectedRoutes(r chi.Router) {
+	r.Get("/links/outgoing", s.linksOutgoing)
+	r.Get("/links/backlinks", s.linksBacklinks)
+	r.Get("/links/unresolved", s.linksUnresolved)
+	r.Get("/links/orphans", s.linksOrphans)
+	r.Get("/comments/pending", s.pendingComments)
+	r.Post("/comments/mutate", s.mutateComment)
+	r.Post("/translate", s.translate)
+	r.Post("/canvas/create", s.createCanvas)
 	r.Post("/session/rotate-token", s.sessionRotateToken)
 
 	r.Get("/vault", s.vaultInfo)
@@ -294,6 +302,20 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func writeError(w http.ResponseWriter, err error) {
+	var conflict *vault.VersionConflict
+	if errors.As(err, &conflict) {
+		writeJSON(w, 409, map[string]any{"code": "VERSION_CONFLICT", "version": conflict.Version, "body": conflict.Body})
+		return
+	}
+	var rewrite *vault.RewriteError
+	if errors.As(err, &rewrite) {
+		writeJSON(w, 500, map[string]any{"code": "REWRITE_FAILED", "unrewrittenFiles": rewrite.Files, "changedFiles": rewrite.Changed})
+		return
+	}
+	if errors.Is(err, vault.ErrInvalidPrefix) || errors.Is(err, vault.ErrInvalidCommentMutation) {
+		http.Error(w, err.Error(), 400)
+		return
+	}
 	var statusErr httpStatusError
 	if errors.As(err, &statusErr) {
 		http.Error(w, statusErr.Error(), statusErr.code)
@@ -698,14 +720,16 @@ func (s *Server) writeNote(w http.ResponseWriter, r *http.Request) {
 	cfg := s.currentConfig()
 	r.Body = http.MaxBytesReader(w, r.Body, cfg.MaxNoteBytes+jsonEnvelopeBytes)
 	var req struct {
-		Path string `json:"path"`
-		Body string `json:"body"`
+		Path        string  `json:"path"`
+		Body        string  `json:"body"`
+		BaseVersion *string `json:"baseVersion"`
+		Force       bool    `json:"force"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	meta, err := s.currentVault().WriteNote(req.Path, req.Body)
+	meta, err := s.currentVault().WriteNoteVersion(req.Path, req.Body, req.BaseVersion, req.Force)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -763,7 +787,10 @@ func (s *Server) renameNote(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, meta)
+	writeJSON(w, http.StatusOK, struct {
+		vault.NoteMeta
+		ChangedFiles []string `json:"changedFiles"`
+	}{meta, append([]string{}, meta.ChangedFiles...)})
 }
 
 func (s *Server) deleteNote(w http.ResponseWriter, r *http.Request) {
@@ -884,7 +911,10 @@ func (s *Server) moveNote(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, meta)
+	writeJSON(w, http.StatusOK, struct {
+		vault.NoteMeta
+		ChangedFiles []string `json:"changedFiles"`
+	}{meta, append([]string{}, meta.ChangedFiles...)})
 }
 
 // --- Folders ---
@@ -915,12 +945,12 @@ func (s *Server) renameFolder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	out, err := s.currentVault().RenameFolder(req.Folder, req.OldSubpath, req.NewSubpath)
+	out, changed, err := s.currentVault().RenameFolderWithReferences(req.Folder, req.OldSubpath, req.NewSubpath)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"subpath": out})
+	writeJSON(w, http.StatusOK, map[string]any{"subpath": out, "changedFiles": changed})
 }
 
 func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) {

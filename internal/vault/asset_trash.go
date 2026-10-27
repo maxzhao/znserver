@@ -76,6 +76,9 @@ func (v *Vault) DuplicateAsset(rel string) (AssetMeta, error) {
 	ext := filepath.Ext(srcAbs)
 	stem := strings.TrimSuffix(filepath.Base(srcAbs), ext)
 	destAbs := uniquePath(filepath.Dir(srcAbs), stem+" copy", ext)
+	if err := v.checkVisibleAbs(destAbs); err != nil {
+		return AssetMeta{}, err
+	}
 	if err := copyFile(srcAbs, destAbs, v.fileMode); err != nil {
 		return AssetMeta{}, err
 	}
@@ -163,6 +166,9 @@ func (v *Vault) ListDeletedAssets() ([]DeletedAsset, error) {
 		if err := json.Unmarshal(raw, &meta); err != nil || meta.Path == "" || meta.Name == "" {
 			continue
 		}
+		if v.IsExcluded(meta.Path) {
+			continue
+		}
 		// The asset file itself must still be present to be restorable.
 		if _, err := os.Stat(filepath.Join(v.deletedAssetsRoot(), undoToken, meta.Name)); err != nil {
 			continue
@@ -217,17 +223,20 @@ func (v *Vault) RestoreDeletedAsset(deleted DeletedAsset) (AssetMeta, error) {
 		return AssetMeta{}, errors.New("deleted asset entry is unreadable")
 	}
 	srcAbs := filepath.Join(trashDir, name)
-	targetAbs, err := SafeJoin(v.root, targetRel)
+	targetAbs, err := v.visibleJoin(v.root, targetRel)
 	if err != nil {
 		return AssetMeta{}, err
 	}
 	targetDir := filepath.Dir(targetAbs)
-	if err := os.MkdirAll(targetDir, v.dirMode); err != nil {
-		return AssetMeta{}, err
-	}
 	base := filepath.Base(targetAbs)
 	ext := filepath.Ext(base)
 	finalAbs := uniquePath(targetDir, strings.TrimSuffix(base, ext), ext)
+	if err := v.checkVisibleAbs(finalAbs); err != nil {
+		return AssetMeta{}, err
+	}
+	if err := os.MkdirAll(targetDir, v.dirMode); err != nil {
+		return AssetMeta{}, err
+	}
 	if err := os.Rename(srcAbs, finalAbs); err != nil {
 		return AssetMeta{}, err
 	}

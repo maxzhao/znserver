@@ -27,7 +27,7 @@ const (
 	internalVaultDir      = ".zennotes"
 	vaultSettingsFile     = "vault.json"
 	noteMetaCacheFile     = "note-meta-cache-v1.json"
-	noteMetaCacheVersion  = 2
+	noteMetaCacheVersion  = 3
 	noteCommentsDir       = "comments"
 	noteCommentsSuffix    = ".comments.json"
 	noteMetaReadLimit     = 64
@@ -56,7 +56,12 @@ func isExcalidrawName(name string) bool {
 // noteExt returns the on-disk extension for a note-like file, preserving
 // `.excalidraw` for drawings and defaulting to `.md` otherwise. Rename/move/
 // duplicate use it so a drawing never silently becomes a Markdown note.
+func isCanvasName(name string) bool { return strings.EqualFold(filepath.Ext(name), ".canvas") }
+
 func noteExt(name string) string {
+	if isCanvasName(name) {
+		return ".canvas"
+	}
 	if isExcalidrawName(name) {
 		return excalidrawExt
 	}
@@ -186,6 +191,7 @@ type Vault struct {
 	dirMode       fs.FileMode
 	maxAssetBytes int64
 	mu            sync.RWMutex
+	mutationMu    sync.Mutex
 	searchCacheMu sync.Mutex
 	searchCache   *textSearchCache
 	metaCacheMu   sync.Mutex
@@ -388,6 +394,8 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 	copy(monthlyLegacyPatterns, settings.MonthlyNotes.LegacyPatterns)
 	return VaultSettings{
 		DisplayName:          settings.DisplayName,
+		ExcludedPaths:        append([]string{}, settings.ExcludedPaths...),
+		ProjectPathPrefix:    settings.ProjectPathPrefix,
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
 		DailyNotes: DailyNotesSettings{
 			Enabled:                 settings.DailyNotes.Enabled,
@@ -586,7 +594,9 @@ func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLoc
 		folderColors[key] = value
 	}
 	return VaultSettings{
-		DisplayName: normalizeVaultDisplayName(value.DisplayName),
+		DisplayName:       normalizeVaultDisplayName(value.DisplayName),
+		ExcludedPaths:     append([]string{}, value.ExcludedPaths...),
+		ProjectPathPrefix: value.ProjectPathPrefix,
 		PrimaryNotesLocation: normalizePrimaryNotesLocation(func() PrimaryNotesLocation {
 			if value.PrimaryNotesLocation == "" {
 				return fallbackPrimary
@@ -863,7 +873,7 @@ func (v *Vault) inferPrimaryNotesLocation() PrimaryNotesLocation {
 		if _, reserved := reservedRootNames[name]; reserved {
 			continue
 		}
-		if entry.IsDir() || strings.EqualFold(filepath.Ext(name), ".md") || isExcalidrawName(name) {
+		if entry.IsDir() || strings.EqualFold(filepath.Ext(name), ".md") || isExcalidrawName(name) || isCanvasName(name) {
 			return PrimaryNotesRoot
 		}
 	}
@@ -955,6 +965,9 @@ func (v *Vault) invalidateSettingsCache() {
 }
 
 func (v *Vault) SetSettings(next VaultSettings) (VaultSettings, error) {
+	if !validProjectPrefix(next.ProjectPathPrefix) {
+		return VaultSettings{}, ErrInvalidPrefix
+	}
 	fallbackPrimary := v.inferPrimaryNotesLocation()
 	normalized := normalizeVaultSettings(next, fallbackPrimary)
 	// Read before the write, while the cache still answers with the old value:
@@ -1250,7 +1263,10 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 					}
 				}
 			}
-			if !strings.EqualFold(filepath.Ext(d.Name()), ".md") && !isExcalidrawName(d.Name()) {
+			if !strings.EqualFold(filepath.Ext(d.Name()), ".md") && !isExcalidrawName(d.Name()) && !isCanvasName(d.Name()) {
+				return nil
+			}
+			if v.checkVisibleAbs(path) != nil {
 				return nil
 			}
 			files = append(files, noteFile{folder: folder, path: path})
@@ -1357,6 +1373,9 @@ func (v *Vault) ListFolders() ([]FolderEntry, error) {
 			if err != nil {
 				return nil
 			}
+			if v.checkVisibleAbs(path) != nil && !v.visibleDescendant(path) {
+				return nil
+			}
 			out = append(out, FolderEntry{
 				Folder:  folder,
 				Subpath: filepath.ToSlash(rel),
@@ -1405,6 +1424,9 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 				continue
 			}
 			full := filepath.Join(dir, name)
+			if !entry.IsDir() && v.checkVisibleAbs(full) != nil {
+				continue
+			}
 			if entry.IsDir() {
 				if filepath.Clean(dir) == filepath.Clean(v.root) && name == internalVaultDir {
 					continue
@@ -1421,7 +1443,7 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 				continue
 			}
 			isLink := entry.Type()&os.ModeSymlink != 0
-			if (!entry.Type().IsRegular() && !isLink) || strings.EqualFold(filepath.Ext(name), ".md") || isExcalidrawName(name) {
+			if (!entry.Type().IsRegular() && !isLink) || strings.EqualFold(filepath.Ext(name), ".md") || isExcalidrawName(name) || isCanvasName(name) {
 				continue
 			}
 			info, err := entry.Info()
@@ -1499,19 +1521,28 @@ func kindForExt(ext string) string {
 // color like "#1971c2" in the scene must not register as a #tag.
 func buildNoteMeta(relPosix, title string, folder NoteFolder, info os.FileInfo, bodyStr, preambleFolder string) NoteMeta {
 	meta := NoteMeta{
-		Path:        relPosix,
-		Title:       title,
-		Folder:      folder,
-		CreatedAt:   info.ModTime().UnixMilli(),
-		UpdatedAt:   info.ModTime().UnixMilli(),
-		Size:        info.Size(),
-		Tags:        []string{},
-		Wikilinks:   []string{},
-		AssetEmbeds: []string{},
+		Path:         relPosix,
+		Title:        title,
+		DisplayTitle: title,
+		Aliases:      []string{},
+		Folder:       folder,
+		CreatedAt:    info.ModTime().UnixMilli(),
+		UpdatedAt:    info.ModTime().UnixMilli(),
+		Size:         info.Size(),
+		Tags:         []string{},
+		Wikilinks:    []string{},
+		AssetEmbeds:  []string{},
 	}
 	if isExcalidrawName(relPosix) {
+		meta.Type = "excalidraw"
 		return meta
 	}
+	if isCanvasName(relPosix) {
+		meta.Type = "canvas"
+		meta.Excerpt = BuildExcerpt(canvasText(bodyStr))
+		return meta
+	}
+	meta.DisplayTitle, meta.Aliases = displayMetadata(bodyStr, title)
 	meta.Wikilinks = ExtractWikilinks(bodyStr)
 	meta.AssetEmbeds = ExtractAssetEmbeds(bodyStr)
 	meta.HasAttachments = BodyHasLocalAsset(bodyStr)
@@ -1582,7 +1613,10 @@ func (v *Vault) readMetaWithPreambleFolder(
 func (v *Vault) ReadNote(rel string) (NoteContent, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	abs, err := SafeJoin(v.root, rel)
+	return v.readNoteLocked(rel)
+}
+func (v *Vault) readNoteLocked(rel string) (NoteContent, error) {
+	abs, err := v.visibleJoin(v.root, rel)
 	if err != nil {
 		return NoteContent{}, err
 	}
@@ -1604,13 +1638,17 @@ func (v *Vault) ReadNote(rel string) (NoteContent, error) {
 	rel = filepath.ToSlash(rel)
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
 	meta := buildNoteMeta(rel, title, folder, info, bodyStr, v.typstPreambleFolder())
+	meta.Version = ContentVersion(bodyStr)
 	return NoteContent{NoteMeta: meta, Body: bodyStr}, nil
 }
 
 func (v *Vault) WriteNote(rel, body string) (NoteMeta, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	abs, err := SafeJoin(v.root, rel)
+	return v.writeNoteLocked(rel, body)
+}
+func (v *Vault) writeNoteLocked(rel, body string) (NoteMeta, error) {
+	abs, err := v.visibleJoin(v.root, rel)
 	if err != nil {
 		return NoteMeta{}, err
 	}
@@ -1726,6 +1764,9 @@ func normalizeComments(inputs []NoteComment, notePath string) []NoteComment {
 }
 
 func (v *Vault) readNoteCommentsLocked(rel string) ([]NoteComment, error) {
+	if _, err := v.visibleJoin(v.root, rel); err != nil {
+		return nil, err
+	}
 	notePath := filepath.ToSlash(rel)
 	abs, err := v.commentsPath(notePath)
 	if err != nil {
@@ -1758,6 +1799,9 @@ func (v *Vault) ReadNoteComments(rel string) ([]NoteComment, error) {
 }
 
 func (v *Vault) writeNoteCommentsLocked(rel string, comments []NoteComment) ([]NoteComment, error) {
+	if _, err := v.visibleJoin(v.root, rel); err != nil {
+		return nil, err
+	}
 	notePath := filepath.ToSlash(rel)
 	normalized := normalizeComments(comments, notePath)
 	abs, err := v.commentsPath(notePath)
@@ -1914,10 +1958,13 @@ func (v *Vault) CreateNote(folder NoteFolder, title, subpath string) (NoteMeta, 
 		}
 		dir = sub
 	}
+	abs := uniquePath(dir, title, ".md")
+	if err := v.checkVisibleAbs(abs); err != nil {
+		return NoteMeta{}, err
+	}
 	if err := os.MkdirAll(dir, v.dirMode); err != nil {
 		return NoteMeta{}, err
 	}
-	abs := uniquePath(dir, title, ".md")
 	// Seed the same `# Title` body the desktop app writes (main vault.ts and
 	// the MCP vault-ops both do), from the FINAL on-disk stem so a deduped
 	// "Title 2" heads itself correctly. A remote vault otherwise creates
@@ -1954,10 +2001,13 @@ func (v *Vault) CreateExcalidraw(folder NoteFolder, title, subpath string) (Note
 		}
 		dir = sub
 	}
+	abs := uniquePath(dir, title, excalidrawExt)
+	if err := v.checkVisibleAbs(abs); err != nil {
+		return NoteMeta{}, err
+	}
 	if err := os.MkdirAll(dir, v.dirMode); err != nil {
 		return NoteMeta{}, err
 	}
-	abs := uniquePath(dir, title, excalidrawExt)
 	if err := os.WriteFile(abs, []byte(emptyExcalidrawJSON), v.fileMode); err != nil {
 		return NoteMeta{}, err
 	}
@@ -1966,28 +2016,24 @@ func (v *Vault) CreateExcalidraw(folder NoteFolder, title, subpath string) (Note
 }
 
 func (v *Vault) RenameNote(rel, nextTitle string) (NoteMeta, error) {
-	// Snapshot the vault before the rename (ListNotes takes its own read lock)
-	// so inbound [[wikilinks]] still resolve to this note under its current name.
-	notesBefore, err := v.ListNotes()
+	v.mutationMu.Lock()
+	defer v.mutationMu.Unlock()
+	before, err := v.Links()
 	if err != nil {
 		return NoteMeta{}, err
 	}
 	meta, err := v.renameNoteFile(rel, nextTitle)
 	if err != nil {
-		return NoteMeta{}, err
+		return meta, err
 	}
-	if meta.Path != rel {
-		// ReadNote / WriteNote take their own locks, so this runs after the
-		// rename's write lock has been released.
-		v.rewriteInboundWikilinks(notesBefore, rel, meta.Title)
-	}
-	return meta, nil
+	meta.ChangedFiles, err = v.rewriteReferences(before, rel, meta.Path)
+	return meta, err
 }
 
 func (v *Vault) renameNoteFile(rel, nextTitle string) (NoteMeta, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	abs, err := SafeJoin(v.root, rel)
+	abs, err := v.visibleJoin(v.root, rel)
 	if err != nil {
 		return NoteMeta{}, err
 	}
@@ -2068,7 +2114,7 @@ func (v *Vault) rewriteInboundWikilinks(notesBefore []NoteMeta, oldPath, newTitl
 func (v *Vault) DeleteNote(rel string) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	abs, err := SafeJoin(v.root, rel)
+	abs, err := v.visibleJoin(v.root, rel)
 	if err != nil {
 		return err
 	}
@@ -2139,7 +2185,7 @@ func (v *Vault) folderSubpathOf(abs string) string {
 func (v *Vault) moveBetweenFolders(rel string, target NoteFolder) (NoteMeta, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	abs, err := SafeJoin(v.root, rel)
+	abs, err := v.visibleJoin(v.root, rel)
 	if err != nil {
 		return NoteMeta{}, err
 	}
@@ -2159,10 +2205,13 @@ func (v *Vault) moveBetweenFolders(rel string, target NoteFolder) (NoteMeta, err
 			return NoteMeta{}, err
 		}
 	}
+	newAbs := uniquePath(destDir, title, noteExt(abs))
+	if err := v.checkVisibleAbs(newAbs); err != nil {
+		return NoteMeta{}, err
+	}
 	if err := os.MkdirAll(destDir, v.dirMode); err != nil {
 		return NoteMeta{}, err
 	}
-	newAbs := uniquePath(destDir, title, noteExt(abs))
 	nextRel, err := filepath.Rel(v.root, newAbs)
 	if err != nil {
 		return NoteMeta{}, err
@@ -2223,13 +2272,16 @@ func (v *Vault) EmptyTrash() error {
 func (v *Vault) DuplicateNote(rel string) (NoteMeta, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	abs, err := SafeJoin(v.root, rel)
+	abs, err := v.visibleJoin(v.root, rel)
 	if err != nil {
 		return NoteMeta{}, err
 	}
 	folder, _ := v.folderOf(abs)
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs)) + " copy"
 	newAbs := uniquePath(filepath.Dir(abs), sanitizeFileStem(title), noteExt(abs))
+	if err := v.checkVisibleAbs(newAbs); err != nil {
+		return NoteMeta{}, err
+	}
 	if err := copyFile(abs, newAbs, v.fileMode); err != nil {
 		return NoteMeta{}, err
 	}
@@ -2245,9 +2297,23 @@ func (v *Vault) DuplicateNote(rel string) (NoteMeta, error) {
 }
 
 func (v *Vault) MoveNote(rel string, target NoteFolder, targetSubpath string) (NoteMeta, error) {
+	v.mutationMu.Lock()
+	defer v.mutationMu.Unlock()
+	before, err := v.Links()
+	if err != nil {
+		return NoteMeta{}, err
+	}
+	meta, err := v.moveNoteFile(rel, target, targetSubpath)
+	if err != nil {
+		return meta, err
+	}
+	meta.ChangedFiles, err = v.rewriteReferences(before, rel, meta.Path)
+	return meta, err
+}
+func (v *Vault) moveNoteFile(rel string, target NoteFolder, targetSubpath string) (NoteMeta, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	abs, err := SafeJoin(v.root, rel)
+	abs, err := v.visibleJoin(v.root, rel)
 	if err != nil {
 		return NoteMeta{}, err
 	}
@@ -2265,11 +2331,14 @@ func (v *Vault) MoveNote(rel string, target NoteFolder, targetSubpath string) (N
 		}
 		destDir = sub
 	}
+	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
+	newAbs := uniquePath(destDir, title, noteExt(abs))
+	if err := v.checkVisibleAbs(newAbs); err != nil {
+		return NoteMeta{}, err
+	}
 	if err := os.MkdirAll(destDir, v.dirMode); err != nil {
 		return NoteMeta{}, err
 	}
-	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
-	newAbs := uniquePath(destDir, title, noteExt(abs))
 	nextRel, err := filepath.Rel(v.root, newAbs)
 	if err != nil {
 		return NoteMeta{}, err
@@ -2307,7 +2376,7 @@ func (v *Vault) CreateFolder(folder NoteFolder, subpath string) error {
 	if err != nil {
 		return err
 	}
-	abs, err := SafeJoin(base, subpath)
+	abs, err := v.visibleJoin(base, subpath)
 	if err != nil {
 		return err
 	}
@@ -2318,6 +2387,16 @@ func (v *Vault) CreateFolder(folder NoteFolder, subpath string) error {
 func (v *Vault) relocateFolderTrees(moves [][2]string, persistSettings func() error) error {
 	present := make([][2]string, 0, len(moves))
 	for _, move := range moves {
+		if !strings.HasPrefix(move[0], v.commentsRoot()+string(filepath.Separator)) {
+			if err := v.checkVisibleAbs(move[1]); err != nil {
+				return err
+			}
+			if _, err := os.Stat(move[0]); err == nil {
+				if err = v.checkVisibleTree(move[0], move[1]); err != nil {
+					return err
+				}
+			}
+		}
 		source, err := os.Stat(move[0])
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -2368,17 +2447,45 @@ func (v *Vault) relocateFolderTrees(moves [][2]string, persistSettings func() er
 }
 
 func (v *Vault) RenameFolder(folder NoteFolder, oldSub, newSub string) (string, error) {
+	result, _, err := v.RenameFolderWithReferences(folder, oldSub, newSub)
+	return result, err
+}
+func (v *Vault) RenameFolderWithReferences(folder NoteFolder, oldSub, newSub string) (string, []string, error) {
+	v.mutationMu.Lock()
+	defer v.mutationMu.Unlock()
+	before, err := v.Links()
+	if err != nil {
+		return "", nil, err
+	}
+	base, err := v.folderRoot(folder)
+	if err != nil {
+		return "", nil, err
+	}
+	oldAbs, err := v.visibleJoin(base, oldSub)
+	if err != nil {
+		return "", nil, err
+	}
+	oldRel, _ := filepath.Rel(v.root, oldAbs)
+	result, err := v.renameFolderTree(folder, oldSub, newSub)
+	if err != nil {
+		return "", nil, err
+	}
+	nextRel, _ := filepath.Rel(v.root, filepath.Join(base, filepath.FromSlash(result)))
+	changed, err := v.rewriteReferences(before, filepath.ToSlash(oldRel), filepath.ToSlash(nextRel))
+	return result, changed, err
+}
+func (v *Vault) renameFolderTree(folder NoteFolder, oldSub, newSub string) (string, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	base, err := v.folderRoot(folder)
 	if err != nil {
 		return "", err
 	}
-	oldAbs, err := SafeJoin(base, oldSub)
+	oldAbs, err := v.visibleJoin(base, oldSub)
 	if err != nil {
 		return "", err
 	}
-	newAbs, err := SafeJoin(base, newSub)
+	newAbs, err := v.visibleJoin(base, newSub)
 	if err != nil {
 		return "", err
 	}
@@ -2431,12 +2538,15 @@ func (v *Vault) DeleteFolder(folder NoteFolder, subpath string) error {
 	if err != nil {
 		return err
 	}
-	abs, err := SafeJoin(base, subpath)
+	abs, err := v.visibleJoin(base, subpath)
 	if err != nil {
 		return err
 	}
 	if abs == base {
 		return errors.New("refusing to delete top-level folder")
+	}
+	if err := v.checkVisibleTree(abs, ""); err != nil {
+		return err
 	}
 	rel, _ := filepath.Rel(v.root, abs)
 	comments, err := SafeJoin(v.commentsRoot(), rel)
@@ -2479,13 +2589,16 @@ func (v *Vault) DuplicateFolder(folder NoteFolder, subpath string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	src, err := SafeJoin(base, subpath)
+	src, err := v.visibleJoin(base, subpath)
 	if err != nil {
 		return "", err
 	}
 	parent := filepath.Dir(src)
 	baseName := filepath.Base(src) + " copy"
 	dst := uniqueDir(parent, baseName)
+	if err := v.checkVisibleTree(src, dst); err != nil {
+		return "", err
+	}
 	if err := copyDir(src, dst, v.fileMode, v.dirMode); err != nil {
 		return "", err
 	}
@@ -2496,16 +2609,10 @@ func (v *Vault) DuplicateFolder(folder NoteFolder, subpath string) (string, erro
 	}
 	rel, _ := filepath.Rel(base, dst)
 	relPath := filepath.ToSlash(rel)
-	_, err = v.SetSettings(VaultSettings{
-		PrimaryNotesLocation: settings.PrimaryNotesLocation,
-		DailyNotes:           settings.DailyNotes,
-		WeeklyNotes:          settings.WeeklyNotes,
-		MonthlyNotes:         settings.MonthlyNotes,
-		FolderIcons:          duplicateFolderIcons(settings.FolderIcons, folder, subpath, relPath),
-		FolderColors:         duplicateFolderColors(settings.FolderColors, folder, subpath, relPath),
-		// A duplicated folder isn't auto-favorited; carry existing favorites through.
-		Favorites: settings.Favorites,
-	})
+	next := settings
+	next.FolderIcons = duplicateFolderIcons(settings.FolderIcons, folder, subpath, relPath)
+	next.FolderColors = duplicateFolderColors(settings.FolderColors, folder, subpath, relPath)
+	_, err = v.SetSettings(next)
 	if err != nil {
 		return "", err
 	}
@@ -2579,7 +2686,7 @@ func (v *Vault) ScanTasksWith(opts ParseTasksOptions) ([]Task, error) {
 			relPosix := filepath.ToSlash(rel)
 			// Before the read: with Task folders set, most of a vault is
 			// outside them and never needs opening.
-			if isPathExcludedFromTasks(relPosix, excluded, included) {
+			if ExcludedPath(relPosix, settings.ExcludedPaths) || v.checkVisibleAbs(path) != nil || isPathExcludedFromTasks(relPosix, excluded, included) {
 				return nil
 			}
 			body, err := os.ReadFile(path)
@@ -2606,7 +2713,7 @@ func (v *Vault) ScanTasksForPath(rel string) ([]Task, error) {
 func (v *Vault) ScanTasksForPathWith(rel string, opts ParseTasksOptions) ([]Task, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	abs, err := SafeJoin(v.root, rel)
+	abs, err := v.visibleJoin(v.root, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -2685,7 +2792,10 @@ func (v *Vault) textSearchFilesLocked() (uint64, []textSearchFile, error) {
 					}
 				}
 			}
-			if !strings.EqualFold(filepath.Ext(d.Name()), ".md") {
+			if !strings.EqualFold(filepath.Ext(d.Name()), ".md") && !isCanvasName(d.Name()) {
+				return nil
+			}
+			if v.checkVisibleAbs(path) != nil {
 				return nil
 			}
 			info, err := d.Info()
@@ -2741,7 +2851,12 @@ func (v *Vault) textSearchCandidatesLocked() ([]textSearchCandidate, error) {
 			if err != nil {
 				return
 			}
-			lines := strings.Split(string(body), "\n")
+			text := string(body)
+			if isCanvasName(file.relPosix) {
+				text = canvasText(text)
+			}
+			title, _ := displayMetadata(string(body), file.title)
+			lines := strings.Split(text, "\n")
 			offset := 0
 			candidates := make([]textSearchCandidate, 0, len(lines))
 			for i, line := range lines {
@@ -2753,7 +2868,7 @@ func (v *Vault) textSearchCandidatesLocked() ([]textSearchCandidate, error) {
 				candidates = append(candidates, textSearchCandidate{
 					match: TextSearchMatch{
 						Path:       file.relPosix,
-						Title:      file.title,
+						Title:      title,
 						Folder:     file.folder,
 						LineNumber: i + 1,
 						Offset:     offset,
@@ -2827,9 +2942,6 @@ func (v *Vault) ImportAsset(notePath, filename string, body io.Reader) (Imported
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	assetsAbs := filepath.Join(v.root, AssetsDir)
-	if err := os.MkdirAll(assetsAbs, v.dirMode); err != nil {
-		return ImportedAsset{}, err
-	}
 	safeName := sanitizeFileName(filename)
 	if safeName == "" {
 		safeName = "file"
@@ -2837,6 +2949,12 @@ func (v *Vault) ImportAsset(notePath, filename string, body io.Reader) (Imported
 	ext := filepath.Ext(safeName)
 	stem := strings.TrimSuffix(safeName, ext)
 	abs := uniquePath(assetsAbs, stem, ext)
+	if err := v.checkVisibleAbs(abs); err != nil {
+		return ImportedAsset{}, err
+	}
+	if err := os.MkdirAll(assetsAbs, v.dirMode); err != nil {
+		return ImportedAsset{}, err
+	}
 	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, v.fileMode)
 	if err != nil {
 		return ImportedAsset{}, err
@@ -2877,7 +2995,7 @@ func (v *Vault) ImportAsset(notePath, filename string, body io.Reader) (Imported
 func (v *Vault) AssetAbsPath(rel string) (string, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	return SafeJoin(v.root, rel)
+	return v.visibleJoin(v.root, rel)
 }
 
 // RenameAsset renames an asset file in place (same directory), mirroring the
@@ -2886,19 +3004,18 @@ func (v *Vault) AssetAbsPath(rel string) (string, error) {
 // note that referenced the asset is then rewritten to its new name, the way
 // RenameNote handles inbound wikilinks. (#785)
 func (v *Vault) RenameAsset(rel, nextName string) (AssetMeta, error) {
-	// Snapshot before the move (both listings take their own read locks) so
-	// references still resolve to the asset under its current name; they are
-	// rewritten after the rename's write lock has been released.
-	assetsBefore, _ := v.ListAssets()
-	notesBefore, _ := v.ListNotes()
+	v.mutationMu.Lock()
+	defer v.mutationMu.Unlock()
+	before, err := v.Links()
+	if err != nil {
+		return AssetMeta{}, err
+	}
 	meta, oldRel, err := v.renameAssetFile(rel, nextName)
 	if err != nil {
 		return AssetMeta{}, err
 	}
-	if meta.Path != oldRel {
-		v.rewriteAssetReferences(notesBefore, assetsBefore, oldRel, meta.Path)
-	}
-	return meta, nil
+	meta.ChangedFiles, err = v.rewriteReferences(before, oldRel, meta.Path)
+	return meta, err
 }
 
 // renameAssetFile is the locked file move behind RenameAsset. It returns the
@@ -2919,6 +3036,9 @@ func (v *Vault) renameAssetFile(rel, nextName string) (AssetMeta, string, error)
 		return AssetMeta{}, "", err
 	}
 	destAbs := filepath.Join(filepath.Dir(srcAbs), cleanName)
+	if err := v.checkVisibleAbs(destAbs); err != nil {
+		return AssetMeta{}, "", err
+	}
 	if destAbs != srcAbs {
 		if dstInfo, statErr := os.Stat(destAbs); statErr == nil {
 			// Something is already at the destination. Allow it only when it is
@@ -2953,16 +3073,18 @@ func (v *Vault) renameAssetFile(rel, nextName string) (AssetMeta, string, error)
 // unique in the destination. (#379) Every note that referenced the asset is
 // then re-targeted to its new location, like RenameAsset. (#785)
 func (v *Vault) MoveAsset(rel, targetDir string) (AssetMeta, error) {
-	assetsBefore, _ := v.ListAssets()
-	notesBefore, _ := v.ListNotes()
+	v.mutationMu.Lock()
+	defer v.mutationMu.Unlock()
+	before, err := v.Links()
+	if err != nil {
+		return AssetMeta{}, err
+	}
 	meta, oldRel, err := v.moveAssetFile(rel, targetDir)
 	if err != nil {
 		return AssetMeta{}, err
 	}
-	if meta.Path != oldRel {
-		v.rewriteAssetReferences(notesBefore, assetsBefore, oldRel, meta.Path)
-	}
-	return meta, nil
+	meta.ChangedFiles, err = v.rewriteReferences(before, oldRel, meta.Path)
+	return meta, err
 }
 
 // moveAssetFile is the locked file move behind MoveAsset. It returns the new
@@ -2982,9 +3104,6 @@ func (v *Vault) moveAssetFile(rel, targetDir string) (AssetMeta, string, error) 
 	if err != nil {
 		return AssetMeta{}, "", err
 	}
-	if err := os.MkdirAll(destDir, v.dirMode); err != nil {
-		return AssetMeta{}, "", err
-	}
 	if filepath.Clean(destDir) == filepath.Clean(filepath.Dir(srcAbs)) {
 		return before, before.Path, nil
 	}
@@ -2992,6 +3111,12 @@ func (v *Vault) moveAssetFile(rel, targetDir string) (AssetMeta, string, error) 
 	ext := filepath.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
 	destAbs := uniquePath(destDir, stem, ext)
+	if err := v.checkVisibleAbs(destAbs); err != nil {
+		return AssetMeta{}, "", err
+	}
+	if err := os.MkdirAll(destDir, v.dirMode); err != nil {
+		return AssetMeta{}, "", err
+	}
 	if err := os.Rename(srcAbs, destAbs); err != nil {
 		return AssetMeta{}, "", err
 	}
@@ -3014,7 +3139,7 @@ func (v *Vault) assertAssetFile(rel string) (string, error) {
 	if strings.EqualFold(filepath.Ext(trimmed), ".md") {
 		return "", errors.New("use note actions to modify markdown notes")
 	}
-	abs, err := SafeJoin(v.root, trimmed)
+	abs, err := v.visibleJoin(v.root, trimmed)
 	if err != nil {
 		return "", err
 	}

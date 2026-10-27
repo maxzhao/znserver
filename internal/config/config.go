@@ -26,17 +26,22 @@ const (
 )
 
 type Config struct {
-	VaultPath           string   `json:"vaultPath"`
-	DefaultVaultPath    string   `json:"-"`
-	BrowseRoots         []string `json:"-"`
-	AllowedOrigins      []string `json:"-"`
-	Bind                string   `json:"bind"`
-	BasePath            string   `json:"basePath"`
-	AuthToken           string   `json:"authToken"`
-	AuthTokenSource     string   `json:"-"`
-	AllowUnscopedBrowse bool     `json:"-"`
-	AllowInsecureNoAuth bool     `json:"-"`
-	DevMode             bool     `json:"-"`
+	DeepSeekAPIKey          string   `json:"-"`
+	DeepSeekAPIKeyFile      string   `json:"-"`
+	TranslateModel          string   `json:"-"`
+	TranslateTargetLanguage string   `json:"-"`
+	TranslateTemperature    float64  `json:"-"`
+	VaultPath               string   `json:"vaultPath"`
+	DefaultVaultPath        string   `json:"-"`
+	BrowseRoots             []string `json:"-"`
+	AllowedOrigins          []string `json:"-"`
+	Bind                    string   `json:"bind"`
+	BasePath                string   `json:"basePath"`
+	AuthToken               string   `json:"authToken"`
+	AuthTokenSource         string   `json:"-"`
+	AllowUnscopedBrowse     bool     `json:"-"`
+	AllowInsecureNoAuth     bool     `json:"-"`
+	DevMode                 bool     `json:"-"`
 	// DisableWatcher turns off the inotify file watcher (ZENNOTES_DISABLE_WATCHER).
 	// Live updates stop; the vault is still fully served. Useful where inotify is
 	// restricted and can hang the process (e.g. unprivileged LXC). (#179)
@@ -128,6 +133,11 @@ func Load() Config {
 			cfg.AuthTokenSource = AuthTokenSourceFile
 		}
 	}
+	cfg.DeepSeekAPIKey = os.Getenv("ZENNOTES_DEEPSEEK_API_KEY")
+	cfg.DeepSeekAPIKeyFile = os.Getenv("ZENNOTES_DEEPSEEK_API_KEY_FILE")
+	cfg.TranslateModel = os.Getenv("ZENNOTES_TRANSLATE_MODEL")
+	cfg.TranslateTargetLanguage = os.Getenv("ZENNOTES_TRANSLATE_TARGET_LANGUAGE")
+	cfg.TranslateTemperature, _ = strconv.ParseFloat(os.Getenv("ZENNOTES_TRANSLATE_TEMPERATURE"), 64)
 	cfg.AllowUnscopedBrowse = envEnabled("ZENNOTES_ALLOW_UNSCOPED_BROWSE")
 	cfg.AllowInsecureNoAuth = envEnabled("ZENNOTES_ALLOW_INSECURE_NOAUTH")
 	cfg.DevMode = envEnabled("ZENNOTES_DEV")

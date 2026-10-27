@@ -112,7 +112,7 @@ func TestSelfHostedHTTPContract(t *testing.T) {
 						}
 					}
 				}
-				caps := decode(request(http.DefaultClient, "GET", "/capabilities", nil, false), 200)
+				caps := decode(request(http.DefaultClient, "GET", "/capabilities", nil, true), 200)
 				for _, field := range fixture.RequiredCapabilities {
 					if _, ok := caps[field]; !ok {
 						t.Errorf("missing capability: %s", field)

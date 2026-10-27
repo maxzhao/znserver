@@ -37,7 +37,8 @@ type Watcher struct {
 	dirs map[string]struct{}
 	// folderPaths holds the systemFolderPaths from vault settings for
 	// classifying note paths to folder IDs.
-	folderPaths map[string]string
+	folderPaths   map[string]string
+	excludedPaths []string
 }
 
 func (w *Watcher) SetFolderPaths(paths map[string]string) {
@@ -66,16 +67,23 @@ func (w *Watcher) reloadFolderPaths() {
 		// reports too. Any other read error leaves the last known paths in place.
 		if os.IsNotExist(err) {
 			w.SetFolderPaths(nil)
+			w.mu.Lock()
+			w.excludedPaths = nil
+			w.mu.Unlock()
 		}
 		return
 	}
 	var settings struct {
 		SystemFolderPaths map[string]string `json:"systemFolderPaths"`
+		ExcludedPaths     []string          `json:"excludedPaths"`
 	}
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		return
 	}
 	w.SetFolderPaths(vault.NormalizeSystemFolderPaths(settings.SystemFolderPaths))
+	w.mu.Lock()
+	w.excludedPaths = settings.ExcludedPaths
+	w.mu.Unlock()
 }
 
 func Start(root string) (*Watcher, error) {
@@ -119,6 +127,7 @@ func Start(root string) (*Watcher, error) {
 	if addErrs > 0 {
 		log.Printf("watcher: could not watch %d director(ies) (first error: %v); live updates may be incomplete — set ZENNOTES_DISABLE_WATCHER=1 if this environment restricts inotify (e.g. unprivileged LXC)", addErrs, firstAddErr)
 	}
+	w.reloadFolderPaths()
 	go w.loop()
 	return w, nil
 }
@@ -441,6 +450,10 @@ func (w *Watcher) broadcastFolder(absPath, kind string) {
 
 func (w *Watcher) broadcast(change vault.ChangeEvent) {
 	w.mu.Lock()
+	if change.Scope != "vault-settings" && vault.ExcludedPath(change.Path, w.excludedPaths) {
+		w.mu.Unlock()
+		return
+	}
 	for ch := range w.subs {
 		select {
 		case ch <- change:

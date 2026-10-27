@@ -265,6 +265,8 @@ type FileLocationSetting struct {
 }
 
 type VaultSettings struct {
+	ExcludedPaths     []string `json:"excludedPaths"`
+	ProjectPathPrefix string   `json:"projectPathPrefix"`
 	// DisplayName is what the clients call the vault (#692): the sidebar
 	// header, the vault switcher, the title bar. Mirrors shared/ipc.ts
 	// VaultSettings.displayName; absent means the folder's own name. A
@@ -334,6 +336,11 @@ type TypstPreambleSettings struct {
 
 // NoteMeta — vault-relative note metadata. Mirrors shared/ipc.ts NoteMeta.
 type NoteMeta struct {
+	DisplayTitle   string     `json:"displayTitle"`
+	Aliases        []string   `json:"aliases"`
+	Type           string     `json:"type,omitempty"`
+	Version        string     `json:"version,omitempty"`
+	ChangedFiles   []string   `json:"changedFiles,omitempty"`
 	Path           string     `json:"path"`
 	Title          string     `json:"title"`
 	Folder         NoteFolder `json:"folder"`
@@ -381,12 +388,13 @@ type FolderEntry struct {
 
 // AssetMeta — mirrors shared/ipc.ts AssetMeta.
 type AssetMeta struct {
-	Path         string `json:"path"`
-	Name         string `json:"name"`
-	Kind         string `json:"kind"`
-	SiblingOrder int    `json:"siblingOrder"`
-	Size         int64  `json:"size"`
-	UpdatedAt    int64  `json:"updatedAt"`
+	ChangedFiles []string `json:"changedFiles,omitempty"`
+	Path         string   `json:"path"`
+	Name         string   `json:"name"`
+	Kind         string   `json:"kind"`
+	SiblingOrder int      `json:"siblingOrder"`
+	Size         int64    `json:"size"`
+	UpdatedAt    int64    `json:"updatedAt"`
 }
 
 // DeletedAsset — mirrors shared/ipc.ts DeletedAsset. The meta file it is
