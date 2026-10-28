@@ -140,11 +140,16 @@ func (s *Server) translationCacheStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	result, err := v.TranslationCacheStatus(source, cfg)
-	s.writeTranslation(w, result, err)
+	if err == nil {
+		writeJSON(w, http.StatusOK, result)
+	} else {
+		s.writeTranslation(w, result, err)
+	}
 }
 func (s *Server) translate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Path string `json:"path"`
+		Path  string `json:"path"`
+		Async bool   `json:"async"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -156,7 +161,12 @@ func (s *Server) translate(w http.ResponseWriter, r *http.Request) {
 		s.writeTranslation(w, vault.Translation{}, err)
 		return
 	}
-	result, err := v.Translate(r.Context(), req.Path, cfg)
+	var result vault.Translation
+	if req.Async {
+		result, err = v.TranslateAsync(r.Context(), req.Path, cfg)
+	} else {
+		result, err = v.Translate(r.Context(), req.Path, cfg)
+	}
 	s.writeTranslation(w, result, err)
 }
 func (s *Server) writeTranslation(w http.ResponseWriter, result vault.Translation, err error) {
@@ -178,5 +188,9 @@ func (s *Server) writeTranslation(w http.ResponseWriter, result vault.Translatio
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, 200, result)
+	if result.State == "translating" {
+		writeJSON(w, http.StatusAccepted, result)
+	} else {
+		writeJSON(w, 200, result)
+	}
 }

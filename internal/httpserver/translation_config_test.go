@@ -78,7 +78,7 @@ func TestTranslationConfigHTTPReloadExtraBodyAndErrors(t *testing.T) {
 			_, _ = w.Write([]byte(fakeKey))
 			return
 		}
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"local-stub-translation"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"stop","message":{"content":"local-stub-translation"}}]}`))
 	}))
 	defer provider.Close()
 	file := map[string]any{"version": 1, "endpoint": provider.URL, "targetLanguage": "German", "model": "file-model", "temperature": 0.6, "extraBody": map[string]any{"model": "ignored", "temperature": 99, "messages": "ignored", "stream": true, "thinking": map[string]any{"type": "disabled"}}}

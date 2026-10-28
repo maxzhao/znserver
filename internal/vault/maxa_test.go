@@ -304,7 +304,7 @@ func TestMaxaTranslationHTTPAndCache(t *testing.T) {
 			t.Error(request)
 		}
 		time.Sleep(20 * time.Millisecond)
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"# 译文\n\n你好"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"finish_reason":"stop","message":{"content":"# 译文\n\n你好"}}]}`))
 	}))
 	defer upstream.Close()
 	cfg := TranslateConfig{Key: "test-only-secret", Endpoint: upstream.URL}

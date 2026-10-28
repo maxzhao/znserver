@@ -24,9 +24,11 @@ type TranslateConfig struct {
 	ExtraBody                                     map[string]json.RawMessage
 }
 type Translation struct {
-	CacheHit  bool   `json:"cacheHit"`
-	CachePath string `json:"cachePath"`
-	Body      string `json:"body"`
+	CacheHit  bool            `json:"cacheHit"`
+	CachePath string          `json:"cachePath"`
+	Body      string          `json:"body"`
+	State     string          `json:"state"`
+	Error     *TranslateError `json:"error,omitempty"`
 }
 type TranslateError struct {
 	Code    string `json:"code"`
@@ -35,7 +37,12 @@ type TranslateError struct {
 
 func (e *TranslateError) Error() string { return e.Code + ": " + e.Message }
 
-var translationFlights sync.Map
+const translationTimeout = 30 * time.Minute
+
+var translationFlights = struct {
+	sync.Mutex
+	jobs map[string]*translationFlight
+}{jobs: make(map[string]*translationFlight)}
 var blankLines = regexp.MustCompile(`\n{3,}`)
 
 func NormalizeTranslationText(text string) string {
@@ -119,7 +126,7 @@ func (v *Vault) readDerivedCache(cacheRel string) (Translation, error) {
 	}
 	info, err := os.Lstat(abs)
 	if errors.Is(err, os.ErrNotExist) {
-		return Translation{CacheHit: false}, nil
+		return Translation{CacheHit: false, State: "untranslated"}, nil
 	}
 	if err != nil || !info.Mode().IsRegular() {
 		return Translation{}, &TranslateError{"CACHE_UNREADABLE", "existing cache is not a readable regular file"}
@@ -128,36 +135,115 @@ func (v *Vault) readDerivedCache(cacheRel string) (Translation, error) {
 	if err != nil {
 		return Translation{}, &TranslateError{"CACHE_UNREADABLE", "existing translation cache cannot be read"}
 	}
-	return Translation{true, cacheRel, string(data)}, nil
+	return Translation{CacheHit: true, CachePath: cacheRel, Body: string(data), State: "translated"}, nil
 }
 func (v *Vault) TranslationCacheStatus(rel string, cfg TranslateConfig) (Translation, error) {
 	_, _, cacheRel, _, err := v.translationSource(rel, cfg)
 	if err != nil {
 		return Translation{}, err
 	}
-	return v.readDerivedCache(cacheRel)
+	translationFlights.Lock()
+	defer translationFlights.Unlock()
+	result, err := v.readDerivedCache(cacheRel)
+	if err != nil || result.CacheHit {
+		return result, err
+	}
+	if f := translationFlights.jobs[v.root+"\n"+cacheRel]; f != nil {
+		select {
+		case <-f.done:
+			if f.err != nil {
+				result.State = "failed"
+				var te *TranslateError
+				if errors.As(f.err, &te) {
+					result.Error = te
+				} else {
+					result.Error = &TranslateError{"UPSTREAM_ERROR", "translation failed"}
+				}
+			} else {
+				return f.result, nil
+			}
+		default:
+			result.State = "translating"
+		}
+	}
+	return result, nil
 }
+
 func (v *Vault) Translate(ctx context.Context, rel string, cfg TranslateConfig) (Translation, error) {
+	return v.translate(ctx, rel, cfg, false)
+}
+func (v *Vault) TranslateAsync(ctx context.Context, rel string, cfg TranslateConfig) (Translation, error) {
+	return v.translate(ctx, rel, cfg, true)
+}
+func (v *Vault) translate(ctx context.Context, rel string, cfg TranslateConfig, async bool) (Translation, error) {
 	source, body, cacheRel, cfg, err := v.translationSource(rel, cfg)
 	if err != nil {
 		return Translation{}, err
 	}
-	key := cacheRel
-
-	flight := &translationFlight{done: make(chan struct{})}
-	actual, loaded := translationFlights.LoadOrStore(v.root+"\n"+key, flight)
-	if loaded {
-		f := actual.(*translationFlight)
+	cached, err := v.readDerivedCache(cacheRel)
+	if err != nil || cached.CacheHit {
+		return cached, err
+	}
+	// Validate credentials before accepting work, without requiring them on cache hits/status.
+	cfg.Key, err = translationKey(cfg)
+	if err != nil {
+		return Translation{}, err
+	}
+	cfg.KeyFile = ""
+	key := v.root + "\n" + cacheRel
+	translationFlights.Lock()
+	flight := translationFlights.jobs[key]
+	if flight != nil {
 		select {
-		case <-ctx.Done():
-			return Translation{}, ctx.Err()
-		case <-f.done:
-			return f.result, f.err
+		case <-flight.done:
+			// Completed jobs need not be retained once the cache exists. Retry a failure.
+			flight = nil
+		default:
 		}
 	}
-	defer func() { close(flight.done); translationFlights.Delete(v.root + "\n" + key) }()
-	flight.result, flight.err = v.translateOne(ctx, source, body, cacheRel, cfg)
-	return flight.result, flight.err
+	if flight == nil {
+		flight = &translationFlight{done: make(chan struct{})}
+		translationFlights.jobs[key] = flight
+		job := flight
+		// All callers join one bounded job; an HTTP cancellation only stops waiting.
+		jobCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), translationTimeout)
+		go func() {
+			defer cancel()
+			result, err := v.translateOne(jobCtx, source, body, cacheRel, cfg)
+			translationFlights.Lock()
+			job.result, job.err = result, err
+			close(job.done)
+			if err == nil {
+				delete(translationFlights.jobs, key)
+			}
+			translationFlights.Unlock()
+		}()
+	}
+	translationFlights.Unlock()
+	if async {
+		return Translation{State: "translating"}, nil
+	}
+	select {
+	case <-ctx.Done():
+		return Translation{}, ctx.Err()
+	case <-flight.done:
+		return flight.result, flight.err
+	}
+}
+
+func translationKey(cfg TranslateConfig) (string, error) {
+	key := cfg.Key
+	if cfg.KeyFile != "" {
+		data, err := os.ReadFile(cfg.KeyFile)
+		if err != nil {
+			return "", &TranslateError{"MISSING_API_KEY", "cannot read ZENNOTES_DEEPSEEK_API_KEY_FILE"}
+		}
+		key = strings.TrimSpace(string(data))
+	}
+	if strings.TrimSpace(key) == "" {
+		return "", &TranslateError{"MISSING_API_KEY", "no translation API key; sync the Maxa translate preset or check the server translation config"}
+	}
+	return key, nil
 }
 
 func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string, cfg TranslateConfig) (Translation, error) {
@@ -171,16 +257,6 @@ func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string,
 	}
 
 	key := cfg.Key
-	if cfg.KeyFile != "" {
-		data, err := os.ReadFile(cfg.KeyFile)
-		if err != nil {
-			return Translation{}, &TranslateError{"MISSING_API_KEY", "cannot read ZENNOTES_DEEPSEEK_API_KEY_FILE"}
-		}
-		key = strings.TrimSpace(string(data))
-	}
-	if strings.TrimSpace(key) == "" {
-		return Translation{}, &TranslateError{"MISSING_API_KEY", "no translation API key; sync the Maxa translate preset or check the server translation config"}
-	}
 	messages := []map[string]string{{"role": "system", "content": strings.Join([]string{
 		"You are a translation engine for project documents.", "Translate the provided document into " + cfg.TargetLanguage + ".", "Return only the translated document.", "Do not add explanations, summaries, prefaces, or code fences around the whole answer.", "Preserve Markdown structure, headings, lists, tables, links, inline code, and fenced code blocks.", "Do not translate code identifiers, URLs, file paths, command names, or markup syntax."}, "\n")}, {"role": "user", "content": "Target language: " + cfg.TargetLanguage + "\nSource path: " + source + "\n\nDocument:\n" + body}}
 	requestBody := make(map[string]any, len(cfg.ExtraBody)+4)
@@ -201,7 +277,7 @@ func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string,
 	req.Header.Set("Content-Type", "application/json")
 	client := cfg.Client
 	if client == nil {
-		client = &http.Client{Timeout: 3 * time.Minute}
+		client = &http.Client{Timeout: translationTimeout}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -213,7 +289,8 @@ func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string,
 	}
 	var result struct {
 		Choices []struct {
-			Message struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
@@ -223,6 +300,9 @@ func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string,
 	}
 	if len(result.Choices) == 0 || strings.TrimSpace(result.Choices[0].Message.Content) == "" {
 		return Translation{}, &TranslateError{"EMPTY_RESPONSE", "provider returned no translated content"}
+	}
+	if result.Choices[0].FinishReason != "stop" {
+		return Translation{}, &TranslateError{"TRANSLATION_INCOMPLETE", "provider did not finish the translation; retry the note"}
 	}
 	translated := result.Choices[0].Message.Content
 	// No metadata or wrapper is added to the provider's body-only response.
@@ -240,5 +320,5 @@ func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string,
 		return Translation{}, &TranslateError{"CACHE_UNREADABLE", "cannot publish translation cache"}
 	}
 	v.invalidateTextSearchCache()
-	return Translation{false, cacheRel, translated}, nil
+	return Translation{CachePath: cacheRel, Body: translated, State: "translated"}, nil
 }
