@@ -120,6 +120,11 @@ func (s *Server) createCanvas(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, meta)
 }
+func (s *Server) translationCacheStatus(w http.ResponseWriter, r *http.Request) {
+	cfg := s.currentConfig()
+	result, err := s.currentVault().TranslationCacheStatus(r.URL.Query().Get("path"), vault.TranslateConfig{TargetLanguage: cfg.TranslateTargetLanguage})
+	s.writeTranslation(w, result, err)
+}
 func (s *Server) translate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Path string `json:"path"`
@@ -130,6 +135,9 @@ func (s *Server) translate(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := s.currentConfig()
 	result, err := s.currentVault().Translate(r.Context(), req.Path, vault.TranslateConfig{Key: cfg.DeepSeekAPIKey, KeyFile: cfg.DeepSeekAPIKeyFile, Model: cfg.TranslateModel, TargetLanguage: cfg.TranslateTargetLanguage, Temperature: cfg.TranslateTemperature})
+	s.writeTranslation(w, result, err)
+}
+func (s *Server) writeTranslation(w http.ResponseWriter, result vault.Translation, err error) {
 	if err != nil {
 		var te *vault.TranslateError
 		if errors.As(err, &te) {

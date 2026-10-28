@@ -291,6 +291,7 @@ func TestMaxaTranslationHTTPAndCache(t *testing.T) {
 	maxaPut(t, v, "note.md", "# Source\n\nHello")
 	settings, _ := v.GetSettings()
 	settings.ProjectPathPrefix = ".maxa/"
+	settings.ExcludedPaths = []string{"abilities/", "fragments/", "tmp/", "upload/", "artifacts/", "handoff/", "e2e/", "translate-cache/", "knowledge/", "mcp.json", "history/**", "!history/traces/*/visualization/", "!history/traces/*/visualization/**"}
 	_, _ = v.SetSettings(settings)
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -307,6 +308,15 @@ func TestMaxaTranslationHTTPAndCache(t *testing.T) {
 	}))
 	defer upstream.Close()
 	cfg := TranslateConfig{Key: "test-only-secret", Endpoint: upstream.URL}
+	// No API key, no provider call and no directory creation on status miss.
+	status, err := v.TranslationCacheStatus("note.md", TranslateConfig{Endpoint: upstream.URL, KeyFile: "does-not-exist"})
+	if err != nil || status.CacheHit || calls.Load() != 0 {
+		t.Fatal(status, err, calls.Load())
+	}
+	if _, err := os.Stat(filepath.Join(v.root, "translate-cache")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("status miss wrote cache directory", err)
+	}
+
 	var wg sync.WaitGroup
 	for range 5 {
 		wg.Go(func() {
@@ -323,6 +333,22 @@ func TestMaxaTranslationHTTPAndCache(t *testing.T) {
 	result, err := v.Translate(context.Background(), "note.md", TranslateConfig{Endpoint: upstream.URL})
 	if err != nil || !result.CacheHit || calls.Load() != 1 {
 		t.Fatal(result, err)
+	}
+	status, err = v.TranslationCacheStatus("note.md", TranslateConfig{Endpoint: upstream.URL, KeyFile: "does-not-exist"})
+	if err != nil || !status.CacheHit || status.Body != result.Body || calls.Load() != 1 {
+		t.Fatal(status, err, calls.Load())
+	}
+	if _, err := v.ReadNote(result.CachePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("direct cache read leaked", err)
+	}
+	notes, err := v.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, note := range notes {
+		if strings.HasPrefix(note.Path, "translate-cache/") {
+			t.Fatal("cache listed", note.Path)
+		}
 	}
 	data, _ := os.ReadFile(filepath.Join(v.root, result.CachePath))
 	if string(data) != result.Body || strings.Contains(string(data), cfg.Key) {
@@ -346,6 +372,13 @@ func TestMaxaTranslationHTTPAndCache(t *testing.T) {
 	if err := os.MkdirAll(cache, 0700); err != nil {
 		t.Fatal(err)
 	}
+	_, err = v.TranslationCacheStatus("other.md", TranslateConfig{Endpoint: upstream.URL})
+	if !errors.As(err, &te) || te.Code != "CACHE_UNREADABLE" || calls.Load() != 1 {
+		t.Fatal(err, calls.Load())
+	}
+	if info, e := os.Stat(cache); e != nil || !info.IsDir() {
+		t.Fatal("status changed unreadable cache", e)
+	}
 	_, err = v.Translate(context.Background(), "other.md", cfg)
 	if !errors.As(err, &te) || te.Code != "CACHE_UNREADABLE" {
 		t.Fatal(err)
@@ -353,5 +386,33 @@ func TestMaxaTranslationHTTPAndCache(t *testing.T) {
 	before, _ := v.ReadNote("note.md")
 	if before.Body != "# Source\n\nHello" {
 		t.Fatal("translation modified source")
+	}
+}
+
+func TestMaxaTranslationRejectsCacheSymlinks(t *testing.T) {
+	v := maxaVault(t)
+	maxaPut(t, v, "note.md", "source")
+	settings, _ := v.GetSettings()
+	settings.ExcludedPaths = []string{"translate-cache/", "private/"}
+	_, _ = v.SetSettings(settings)
+	if err := os.MkdirAll(filepath.Join(v.root, "translate-cache"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(v.root, "translate-cache", TranslationCacheKey("note.md", "source", "简体中文")+".md")
+	target := filepath.Join(v.root, "secret.md")
+	if err := os.WriteFile(target, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, cache); err != nil {
+		t.Fatal(err)
+	}
+	_, err := v.TranslationCacheStatus("note.md", TranslateConfig{})
+	var te *TranslateError
+	if !errors.As(err, &te) || te.Code != "CACHE_UNREADABLE" {
+		t.Fatal(err)
+	}
+	_, err = v.Translate(context.Background(), "note.md", TranslateConfig{})
+	if !errors.As(err, &te) || te.Code != "CACHE_UNREADABLE" {
+		t.Fatal(err)
 	}
 }

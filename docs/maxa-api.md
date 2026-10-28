@@ -115,7 +115,9 @@ Token input: `ZENNOTES_REMOTE_TOKEN`. Graph JSON is returned from the server ind
 
 ## Translation
 
-`POST /translate {"path":"note.md"}` returns `{cacheHit,cachePath,body}`. `cachePath` is vault-relative. Allowed extensions: `md, markdown, txt, rst, adoc`. Cache files and excluded paths are rejected before provider/write effects. Server-only environment settings:
+`GET /translate/status?path=note.md` validates the saved source and reads only its derived cache. A hit returns `{cacheHit:true,cachePath,body}`; a miss returns `cacheHit:false` (other fields may be empty). It never contacts the provider, reads a key or writes. An unreadable cache returns `CACHE_UNREADABLE`.
+
+`POST /translate {"path":"note.md"}` returns `{cacheHit,cachePath,body}`. `cachePath` is vault-relative. Allowed extensions: `md, markdown, txt, rst, adoc`. Cache files and excluded source paths are rejected before provider/write effects. Both translation endpoints may read exactly the cache file derived from a validated source even when `translate-cache/` is excluded; POST may atomically create that file. Listings, search and every other API retain exclusions. Cache symlinks are rejected. Server-only environment settings:
 
 | Setting | Default |
 | --- | --- |

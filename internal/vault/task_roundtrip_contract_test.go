@@ -85,3 +85,95 @@ func TestSharedTaskRoundtripContract(t *testing.T) {
 		})
 	}
 }
+
+func TestSharedTodoSeqContract(t *testing.T) {
+	data, err := os.ReadFile("testdata/task-roundtrip.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		TodoSeq []struct {
+			ID             string           `json:"id"`
+			Body           string           `json:"body"`
+			Expected       []map[string]any `json:"expected"`
+			ExpectedBody   string           `json:"expectedBody"`
+			ExpectedAfter  []map[string]any `json:"expectedAfter"`
+			Absent         []string         `json:"absent"`
+			NoParents      bool             `json:"noParents"`
+			Insert         string           `json:"insert"`
+			InsertExpected []map[string]any `json:"insertExpected"`
+		} `json:"todoseq"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.TodoSeq) == 0 {
+		t.Fatal("empty TODOseq fixture")
+	}
+	for _, tc := range fixture.TodoSeq {
+		t.Run(tc.ID, func(t *testing.T) {
+			check := func(body string, want []map[string]any) []Task {
+				tasks := ParseTasks("note.md", "Note", FolderInbox, body)
+				if len(tasks) != len(want) {
+					t.Fatalf("got %d tasks, want %d: %+v", len(tasks), len(want), tasks)
+				}
+				for i, expected := range want {
+					encoded, _ := json.Marshal(tasks[i])
+					var actual map[string]any
+					_ = json.Unmarshal(encoded, &actual)
+					for field, value := range expected {
+						got := actual[field]
+						if got == nil && value == false {
+							got = false
+						}
+						if !reflect.DeepEqual(got, value) {
+							t.Errorf("task %d %s: got %#v want %#v", i, field, got, value)
+						}
+					}
+				}
+				return tasks
+			}
+			before := check(tc.Body, tc.Expected)
+			for _, field := range tc.Absent {
+				encoded, _ := json.Marshal(before[0])
+				var actual map[string]any
+				_ = json.Unmarshal(encoded, &actual)
+				if _, ok := actual[field]; ok {
+					t.Errorf("unexpected %s", field)
+				}
+			}
+			if tc.NoParents {
+				for _, task := range before {
+					if task.ParentID != "" {
+						t.Errorf("unexpected parent: %+v", task)
+					}
+				}
+			}
+			if tc.ExpectedBody != "" {
+				after := check(tc.ExpectedBody, tc.ExpectedAfter)
+				for i := range before {
+					if before[i].ID != after[i].ID {
+						t.Error("id changed after write")
+					}
+				}
+			}
+			if tc.Insert != "" {
+				after := check(tc.Insert+tc.Body, tc.InsertExpected)
+				var a, b []string
+				for _, task := range before {
+					if task.TaskIndex >= 0 {
+						a = append(a, task.ID)
+					}
+				}
+				for _, task := range after {
+					if task.TaskIndex >= 0 {
+						b = append(b, task.ID)
+					}
+				}
+				if !reflect.DeepEqual(a, b) {
+					t.Error("checkbox ids changed")
+				}
+			}
+		})
+	}
+}

@@ -90,3 +90,68 @@ func TestMaxaHTTPVersionsExclusionsAndPending(t *testing.T) {
 		t.Fatal(create.Body.String())
 	}
 }
+
+func TestMaxaTranslationStatusExemptionHTTP(t *testing.T) {
+	t.Setenv("ZENNOTES_VAULT_PATH", t.TempDir())
+	v, err := vault.New(t.TempDir(), vault.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	settings, _ := v.GetSettings()
+	settings.PrimaryNotesLocation = vault.PrimaryNotesRoot
+	settings.ExcludedPaths = []string{"translate-cache/", "private/"}
+	_, _ = v.SetSettings(settings)
+	_, _ = v.WriteNote("note.md", "source")
+	s := New(v, nil, nil, config.Config{AuthToken: "test-token", MaxNoteBytes: 10 << 20})
+	router := s.Router()
+	request := func(method, path, body string, auth bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "/api"+path, strings.NewReader(body))
+		if auth {
+			r.Header.Set("Authorization", "Bearer test-token")
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w
+	}
+	if w := request("GET", "/translate/status?path=note.md", "", false); w.Code != 401 {
+		t.Fatal(w.Code)
+	}
+	if w := request("GET", "/translate/status?path=note.md", "", true); w.Code != 200 || !strings.Contains(w.Body.String(), `"cacheHit":false`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	cacheRel := "translate-cache/" + vault.TranslationCacheKey("note.md", "source", "简体中文") + ".md"
+	cache := filepath.Join(v.Root(), cacheRel)
+	if err := os.MkdirAll(filepath.Dir(cache), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cache, []byte("cached-translation"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, req := range []struct{ method, path, body string }{{"GET", "/translate/status?path=note.md", ""}, {"POST", "/translate", `{"path":"note.md"}`}} {
+		w := request(req.method, req.path, req.body, true)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"cacheHit":true`) || !strings.Contains(w.Body.String(), "cached-translation") {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	for _, req := range []struct{ method, path, body string }{{"GET", "/notes/read?path=" + cacheRel, ""}, {"GET", "/translate/status?path=" + cacheRel, ""}, {"POST", "/translate", `{"path":"` + cacheRel + `"}`}, {"GET", "/notes/read?path=translate-cache/other.md", ""}, {"GET", "/translate/status?path=private/hidden.md", ""}} {
+		if w := request(req.method, req.path, req.body, true); w.Code != 404 {
+			t.Fatal(req.path, w.Code, w.Body.String())
+		}
+	}
+	for _, path := range []string{"/notes", "/search/text?q=cached-translation"} {
+		w := request("GET", path, "", true)
+		if w.Code != 200 || strings.Contains(w.Body.String(), "cached-translation") || strings.Contains(w.Body.String(), cacheRel) {
+			t.Fatal(path, w.Code, w.Body.String())
+		}
+	}
+	if err := os.Remove(cache); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(cache, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if w := request("GET", "/translate/status?path=note.md", "", true); w.Code != 500 || !strings.Contains(w.Body.String(), "CACHE_UNREADABLE") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}

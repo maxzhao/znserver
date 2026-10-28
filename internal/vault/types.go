@@ -438,17 +438,26 @@ type TextSearchMatch struct {
 	LineText   string     `json:"lineText"`
 }
 
+type TaskProgress struct {
+	Done  int `json:"done"`
+	Total int `json:"total"`
+}
+
 // Task — mirrors shared/tasks.ts VaultTask.
 type Task struct {
-	ID         string     `json:"id"`
-	SourcePath string     `json:"sourcePath"`
-	NoteTitle  string     `json:"noteTitle"`
-	NoteFolder NoteFolder `json:"noteFolder"`
-	LineNumber int        `json:"lineNumber"`
-	TaskIndex  int        `json:"taskIndex"`
-	RawText    string     `json:"rawText"`
-	Content    string     `json:"content"`
-	Checked    bool       `json:"checked"`
+	Syntax     string        `json:"syntax,omitempty"`
+	Keyword    string        `json:"keyword,omitempty"`
+	ParentID   string        `json:"parentId,omitempty"`
+	Progress   *TaskProgress `json:"progress,omitempty"`
+	ID         string        `json:"id"`
+	SourcePath string        `json:"sourcePath"`
+	NoteTitle  string        `json:"noteTitle"`
+	NoteFolder NoteFolder    `json:"noteFolder"`
+	LineNumber int           `json:"lineNumber"`
+	TaskIndex  int           `json:"taskIndex"`
+	RawText    string        `json:"rawText"`
+	Content    string        `json:"content"`
+	Checked    bool          `json:"checked"`
 	// Cancelled is true for a `[-]` task — intentionally abandoned (#450).
 	Cancelled bool `json:"cancelled,omitempty"`
 	// InProgress is true for a `[/]` task: started, not finished (#512).

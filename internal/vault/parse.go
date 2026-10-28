@@ -607,11 +607,16 @@ func ParseTasksWith(path, title string, folder NoteFolder, body string, opts Par
 	if mode != tasksModeAll {
 		return out
 	}
+	scans := scanTodoSeq(normalized)
+	byLine := map[int]todoScan{}
+	for _, scan := range scans {
+		byLine[scan.line] = scan
+	}
 	taskIndex := 0
 	inFence := false
 	fenceMarker := ""
 
-	fenceStart := regexp.MustCompile("^([ \t]*)(`{3,}|~{3,})")
+	fenceStart := todoFence
 
 	for i, line := range lines {
 		if fm := fenceStart.FindStringSubmatch(line); fm != nil {
@@ -629,8 +634,17 @@ func ParseTasksWith(path, title string, folder NoteFolder, body string, opts Par
 			continue
 		}
 		m := taskLineRe.FindStringSubmatch(line)
-		if m == nil {
+		native := m != nil
+		scan, isTodo := byLine[i]
+		if !native && !isTodo {
 			continue
+		}
+		if isTodo {
+			tail := scan.match[5]
+			if loc := todoPriorityRe.FindStringIndex(tail); loc != nil {
+				tail = tail[:loc[0]] + " " + tail[loc[1]:]
+			}
+			m = []string{"", "", " ", "]" + tail}
 		}
 		checkedChar := m[2]
 		tail := strings.TrimPrefix(m[3], "]")
@@ -646,17 +660,17 @@ func ParseTasksWith(path, title string, folder NoteFolder, body string, opts Par
 		tags := []string{}
 		stripped := tail
 
-		if dm := inlineDueRe.FindStringSubmatch(stripped); dm != nil {
+		if dm := inlineDueRe.FindStringSubmatch(stripped); !isTodo && dm != nil {
 			if isValidIsoDate(dm[1]) {
 				due = dm[1]
 			}
 			stripped = inlineDueRe.ReplaceAllString(stripped, " ")
 		}
-		if pm := inlinePriority.FindStringSubmatch(stripped); pm != nil {
+		if pm := inlinePriority.FindStringSubmatch(stripped); !isTodo && pm != nil {
 			priority = normalizePriority(pm[1])
 			stripped = inlinePriority.ReplaceAllString(stripped, " ")
 		}
-		if inlineWaitingRe.MatchString(stripped) {
+		if !isTodo && inlineWaitingRe.MatchString(stripped) {
 			waiting = true
 			stripped = inlineWaitingRe.ReplaceAllString(stripped, " ")
 		}
@@ -723,10 +737,15 @@ func ParseTasksWith(path, title string, folder NoteFolder, body string, opts Par
 			Status:     fields["status"],
 			Tags:       tags,
 		}
+		if isTodo {
+			applyTodoSeq(&task, scan, lines, path)
+		}
 		out = append(out, task)
-		taskIndex++
+		if native {
+			taskIndex++
+		}
 	}
-	return out
+	return attachTodoChildren(out, scans)
 }
 
 func fmtTaskID(path string, idx int) string {

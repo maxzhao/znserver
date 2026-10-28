@@ -3,36 +3,1253 @@
   "cases": [
     {
       "id": "reschedule-in-progress-task-without-changing-other-content",
-      "note": { "path": "inbox/Release.md", "title": "Release", "folder": "inbox" },
+      "note": {
+        "path": "inbox/Release.md",
+        "title": "Release",
+        "folder": "inbox"
+      },
       "body": "---\ntitle: Release\n---\n# Release\n\nKeep these two spaces.  \n\n```md\n- [ ] Example due:2026-01-01\n```\n\n- [/] Ship release due:2026-09-15 !high #release\n- [ ] Next item\n",
       "taskIndex": 0,
       "due": "2026-09-16",
-      "expectedBefore": { "due": "2026-09-15", "inProgress": true },
+      "expectedBefore": {
+        "due": "2026-09-15",
+        "inProgress": true
+      },
       "expectedBody": "---\ntitle: Release\n---\n# Release\n\nKeep these two spaces.  \n\n```md\n- [ ] Example due:2026-01-01\n```\n\n- [/] Ship release !high #release due:2026-09-16\n- [ ] Next item\n",
-      "expectedAfter": { "due": "2026-09-16", "inProgress": true, "checked": false, "priority": "high", "tags": ["release"] },
+      "expectedAfter": {
+        "due": "2026-09-16",
+        "inProgress": true,
+        "checked": false,
+        "priority": "high",
+        "tags": [
+          "release"
+        ]
+      },
       "expectedTaskCount": 2
     },
     {
       "id": "assign-local-today-near-midnight",
-      "note": { "path": "inbox/Today.md", "title": "Today", "folder": "inbox" },
+      "note": {
+        "path": "inbox/Today.md",
+        "title": "Today",
+        "folder": "inbox"
+      },
       "body": "# Today\n\n- [ ] Review notes\n",
       "taskIndex": 0,
-      "localNow": [2026, 9, 15, 0, 15],
-      "expectedBefore": { "checked": false },
+      "localNow": [
+        2026,
+        9,
+        15,
+        0,
+        15
+      ],
+      "expectedBefore": {
+        "checked": false
+      },
       "expectedBody": "# Today\n\n- [ ] Review notes due:2026-09-15\n",
-      "expectedAfter": { "due": "2026-09-15", "checked": false },
+      "expectedAfter": {
+        "due": "2026-09-15",
+        "checked": false
+      },
       "expectedTaskCount": 1
     },
     {
       "id": "assign-local-today-late-at-night",
-      "note": { "path": "inbox/Today.md", "title": "Today", "folder": "inbox" },
+      "note": {
+        "path": "inbox/Today.md",
+        "title": "Today",
+        "folder": "inbox"
+      },
       "body": "# Today\n\n- [/] Review notes\n",
       "taskIndex": 0,
-      "localNow": [2026, 9, 15, 23, 45],
-      "expectedBefore": { "inProgress": true },
+      "localNow": [
+        2026,
+        9,
+        15,
+        23,
+        45
+      ],
+      "expectedBefore": {
+        "inProgress": true
+      },
       "expectedBody": "# Today\n\n- [/] Review notes due:2026-09-15\n",
-      "expectedAfter": { "due": "2026-09-15", "checked": false, "inProgress": true },
+      "expectedAfter": {
+        "due": "2026-09-15",
+        "checked": false,
+        "inProgress": true
+      },
       "expectedTaskCount": 1
+    }
+  ],
+  "todoseq": [
+    {
+      "id": "keyword-TODO",
+      "body": "TODO Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2,
+          "keyword": "TODO",
+          "status": "todo",
+          "fields": {
+            "status": "todo"
+          },
+          "checked": false,
+          "inProgress": false,
+          "waiting": false,
+          "cancelled": false,
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyword-LATER",
+      "body": "LATER Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2,
+          "keyword": "LATER",
+          "status": "todo",
+          "fields": {
+            "status": "todo"
+          },
+          "checked": false,
+          "inProgress": false,
+          "waiting": false,
+          "cancelled": false,
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyword-NOW",
+      "body": "NOW Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2,
+          "keyword": "NOW",
+          "status": "doing",
+          "fields": {
+            "status": "doing"
+          },
+          "checked": false,
+          "inProgress": true,
+          "waiting": false,
+          "cancelled": false,
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyword-DOING",
+      "body": "DOING Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2,
+          "keyword": "DOING",
+          "status": "doing",
+          "fields": {
+            "status": "doing"
+          },
+          "checked": false,
+          "inProgress": true,
+          "waiting": false,
+          "cancelled": false,
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyword-IN-PROGRESS",
+      "body": "IN-PROGRESS Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2,
+          "keyword": "IN-PROGRESS",
+          "status": "doing",
+          "fields": {
+            "status": "doing"
+          },
+          "checked": false,
+          "inProgress": true,
+          "waiting": false,
+          "cancelled": false,
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyword-WAIT",
+      "body": "WAIT Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2,
+          "keyword": "WAIT",
+          "status": "waiting",
+          "fields": {
+            "status": "waiting"
+          },
+          "checked": false,
+          "inProgress": false,
+          "waiting": true,
+          "cancelled": false,
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyword-WAITING",
+      "body": "WAITING Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2,
+          "keyword": "WAITING",
+          "status": "waiting",
+          "fields": {
+            "status": "waiting"
+          },
+          "checked": false,
+          "inProgress": false,
+          "waiting": true,
+          "cancelled": false,
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyword-DONE",
+      "body": "DONE Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2,
+          "keyword": "DONE",
+          "status": "done",
+          "fields": {
+            "status": "done"
+          },
+          "checked": true,
+          "inProgress": false,
+          "waiting": false,
+          "cancelled": false,
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyword-CANCELED",
+      "body": "CANCELED Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2,
+          "keyword": "CANCELED",
+          "status": "cancelled",
+          "fields": {
+            "status": "cancelled"
+          },
+          "checked": false,
+          "inProgress": false,
+          "waiting": false,
+          "cancelled": true,
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "keyword-CANCELLED",
+      "body": "CANCELLED Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2,
+          "keyword": "CANCELLED",
+          "status": "cancelled",
+          "fields": {
+            "status": "cancelled"
+          },
+          "checked": false,
+          "inProgress": false,
+          "waiting": false,
+          "cancelled": true,
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "archived-hides-checklist",
+      "body": "ARCHIVED Old\n\n- [ ] hidden\n  - [x] also hidden\nTODO Next\n- [ ] visible\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:1",
+          "content": "Next",
+          "progress": {
+            "done": 0,
+            "total": 1
+          }
+        },
+        {
+          "id": "note.md#2",
+          "parentId": "note.md#todoseq:1"
+        }
+      ]
+    },
+    {
+      "id": "planning-and-ordinary-native-tokens",
+      "body": "\t* [x] DOING [#B] Work !high due:2026-01-01 @waiting @status:done @sprint:二 #标签\n\tSCHEDULED: <2026-11-01 Sun 10:30 ++1m> DEADLINE: <2026-11-02 Mon 12:00 .+1d>\n\t  CLOSED: [2026-10-27 Tue]\n\t  - [x] child\n\t- [ ] peer\n",
+      "expected": [
+        {
+          "id": "note.md#0",
+          "taskIndex": 0,
+          "status": "doing",
+          "checked": false,
+          "inProgress": true,
+          "waiting": false,
+          "priority": "med",
+          "due": "2026-11-02",
+          "scheduled": "2026-11-01",
+          "completedDate": "2026-10-27",
+          "fields": {
+            "status": "doing",
+            "sprint": "二"
+          },
+          "content": "Work !high due:2026-01-01 @waiting #标签",
+          "tags": [
+            "标签"
+          ],
+          "progress": {
+            "done": 1,
+            "total": 1
+          }
+        },
+        {
+          "id": "note.md#1",
+          "parentId": "note.md#0"
+        },
+        {
+          "id": "note.md#2"
+        }
+      ]
+    },
+    {
+      "id": "invalid-planning-dates",
+      "body": "TODO [#C] Work\n DEADLINE: <2026-02-30 Mon> SCHEDULED: <bad> CLOSED: [2026-13-01]\n",
+      "expected": [
+        {
+          "keyword": "TODO",
+          "priority": "low",
+          "content": "Work",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ],
+      "absent": [
+        "due",
+        "scheduled",
+        "completedDate"
+      ]
+    },
+    {
+      "id": "blank-lines-nesting-notes-progress",
+      "body": "TODO Parent\n\n- [x] one\n  note\n  - [/] two\n- [-] cancelled\n- [>] forwarded\n\nTODO Other\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "progress": {
+            "done": 1,
+            "total": 2
+          }
+        },
+        {
+          "id": "note.md#0",
+          "parentId": "note.md#todoseq:0"
+        },
+        {
+          "id": "note.md#1",
+          "parentId": "note.md#todoseq:0"
+        },
+        {
+          "id": "note.md#2",
+          "parentId": "note.md#todoseq:0"
+        },
+        {
+          "id": "note.md#3",
+          "parentId": "note.md#todoseq:0"
+        },
+        {
+          "id": "note.md#todoseq:1",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "block-terminator-heading",
+      "body": "TODO Parent\n# Heading\n- [ ] separate\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "noParents": true
+    },
+    {
+      "id": "block-terminator-text",
+      "body": "TODO Parent\ntext\n- [ ] separate\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "noParents": true
+    },
+    {
+      "id": "block-terminator-quote",
+      "body": "TODO Parent\n> quoted\n- [ ] separate\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "noParents": true
+    },
+    {
+      "id": "block-terminator-fence",
+      "body": "TODO Parent\n```\nexample\n```\n- [ ] separate\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "noParents": true
+    },
+    {
+      "id": "shallower-checkbox-terminates",
+      "body": "  TODO Parent\n- [ ] separate\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "noParents": true
+    },
+    {
+      "id": "nested-todoseq-is-top-level",
+      "body": "TODO Parent\n  TODO Other\n  - [ ] child\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "progress": {
+            "done": 0,
+            "total": 0
+          }
+        },
+        {
+          "id": "note.md#todoseq:1",
+          "progress": {
+            "done": 0,
+            "total": 1
+          }
+        },
+        {
+          "id": "note.md#0",
+          "parentId": "note.md#todoseq:1"
+        }
+      ]
+    },
+    {
+      "id": "frontmatter-fence-quote-exclusion",
+      "body": "---\ntitle: X\nTODO hidden\n---\n```md\nTODO hidden\n- [ ] hidden\n```\n> TODO hidden\n> [!note]\n> TODO hidden\nTODO Visible\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "content": "Visible"
+        }
+      ]
+    },
+    {
+      "id": "tasks-mode-false",
+      "body": "---\ntasks: false\n---\nTODO Hidden\n- [ ] hidden\n",
+      "expected": []
+    },
+    {
+      "id": "tasks-mode-off",
+      "body": "---\ntasks: off\n---\nTODO Hidden\n- [ ] hidden\n",
+      "expected": []
+    },
+    {
+      "id": "tasks-mode-note",
+      "body": "---\ntasks: note\n---\nTODO Hidden\n- [ ] hidden\n",
+      "expected": []
+    },
+    {
+      "id": "marker--",
+      "body": "- TODO [#A] Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "keyword": "TODO",
+          "priority": "high",
+          "content": "Work"
+        }
+      ]
+    },
+    {
+      "id": "marker-*",
+      "body": "* TODO [#A] Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "keyword": "TODO",
+          "priority": "high",
+          "content": "Work"
+        }
+      ]
+    },
+    {
+      "id": "marker-+",
+      "body": "+ TODO [#A] Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "keyword": "TODO",
+          "priority": "high",
+          "content": "Work"
+        }
+      ]
+    },
+    {
+      "id": "marker-1.",
+      "body": "1. TODO [#A] Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "keyword": "TODO",
+          "priority": "high",
+          "content": "Work"
+        }
+      ]
+    },
+    {
+      "id": "marker-2)",
+      "body": "2) TODO [#A] Work\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "keyword": "TODO",
+          "priority": "high",
+          "content": "Work"
+        }
+      ]
+    },
+    {
+      "id": "checkbox-ids-stay-numeric",
+      "body": "- [ ] before\nTODO Work\n DEADLINE: <2026-11-01 Sun>\n- [ ] child\n",
+      "expected": [
+        {
+          "id": "note.md#0",
+          "taskIndex": 0
+        },
+        {
+          "id": "note.md#todoseq:0",
+          "taskIndex": -2
+        },
+        {
+          "id": "note.md#1",
+          "taskIndex": 1
+        }
+      ],
+      "insert": "TODO Inserted\n",
+      "insertExpected": [
+        {
+          "id": "note.md#todoseq:0"
+        },
+        {
+          "id": "note.md#0",
+          "taskIndex": 0
+        },
+        {
+          "id": "note.md#todoseq:1"
+        },
+        {
+          "id": "note.md#1",
+          "taskIndex": 1
+        }
+      ]
+    },
+    {
+      "id": "write-complete",
+      "body": "TODO Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-checked",
+        "checked": true
+      },
+      "expectedBody": "DONE Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "DONE Work",
+          "status": "done"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-keep-synonym",
+      "body": "NOW Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-in-progress",
+        "inProgress": true
+      },
+      "expectedBody": "NOW Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "NOW Work",
+          "status": "doing"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-keep-wait",
+      "body": "WAITING Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-waiting",
+        "waiting": true
+      },
+      "expectedBody": "WAITING Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "WAITING Work",
+          "status": "waiting"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-waiting",
+      "body": "TODO Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-waiting",
+        "waiting": true
+      },
+      "expectedBody": "WAIT Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "WAIT Work",
+          "status": "waiting"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-waiting-off",
+      "body": "WAIT Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-waiting",
+        "waiting": false
+      },
+      "expectedBody": "TODO Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "TODO Work",
+          "status": "todo"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-start",
+      "body": "TODO Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-in-progress",
+        "inProgress": true
+      },
+      "expectedBody": "DOING Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "DOING Work",
+          "status": "doing"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-stop",
+      "body": "DOING Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-in-progress",
+        "inProgress": false
+      },
+      "expectedBody": "TODO Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "TODO Work",
+          "status": "todo"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-cancel-checkbox",
+      "body": "- [x] DONE Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#1"
+        }
+      ],
+      "mutation": {
+        "kind": "set-field",
+        "key": "status",
+        "value": "cancelled"
+      },
+      "expectedBody": "- [-] CANCELED Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "- [-] CANCELED Work",
+          "status": "cancelled"
+        },
+        {
+          "id": "note.md#1"
+        }
+      ]
+    },
+    {
+      "id": "write-reopen-checkbox",
+      "body": "1) [x] DONE Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#1"
+        }
+      ],
+      "mutation": {
+        "kind": "set-checked",
+        "checked": false
+      },
+      "expectedBody": "1) [ ] TODO Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "1) [ ] TODO Work",
+          "status": "todo"
+        },
+        {
+          "id": "note.md#1"
+        }
+      ]
+    },
+    {
+      "id": "write-keyword-over-checkbox",
+      "body": "- [ ] DONE Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#1"
+        }
+      ],
+      "mutation": {
+        "kind": "set-checked",
+        "checked": true
+      },
+      "expectedBody": "- [x] DONE Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "- [x] DONE Work",
+          "status": "done"
+        },
+        {
+          "id": "note.md#1"
+        }
+      ]
+    },
+    {
+      "id": "write-priority-insert",
+      "body": "TODO Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-priority",
+        "priority": "high"
+      },
+      "expectedBody": "TODO [#A] Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "TODO [#A] Work",
+          "priority": "high"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-priority-replace",
+      "body": "TODO [#B] Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-priority",
+        "priority": "low"
+      },
+      "expectedBody": "TODO [#C] Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "TODO [#C] Work",
+          "priority": "low"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-priority-clear",
+      "body": "TODO [#A] Work\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-priority",
+        "priority": null
+      },
+      "expectedBody": "TODO Work\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "TODO Work"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-field",
+      "body": "TODO Work @sprint:old\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-field",
+        "key": "sprint",
+        "value": "next"
+      },
+      "expectedBody": "TODO Work @sprint:next\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "TODO Work @sprint:next"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-text",
+      "body": "* TODO [#A] Old @sprint:one\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-text",
+        "text": "New text"
+      },
+      "expectedBody": "* TODO [#A] New text @sprint:one\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "* TODO [#A] New text @sprint:one",
+          "content": "New text"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-insert-due",
+      "body": "TODO Work\n\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-due",
+        "due": "2026-11-02"
+      },
+      "expectedBody": "TODO Work\n  DEADLINE: <2026-11-02 Mon>\n\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "TODO Work",
+          "due": "2026-11-02"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-keep-time-repeater",
+      "body": "  TODO Work\n  DEADLINE: <2026-11-02 Mon 10:00 +1w>\n\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-due",
+        "due": "2026-11-03"
+      },
+      "expectedBody": "  TODO Work\n  DEADLINE: <2026-11-03 Mon 10:00 +1w>\n\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "  TODO Work",
+          "due": "2026-11-03"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-clear-due",
+      "body": "TODO Work\n  DEADLINE: <2026-11-02 Mon>\n\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-due",
+        "due": null
+      },
+      "expectedBody": "TODO Work\n\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "TODO Work"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-leave-done-removes-closed",
+      "body": "DONE Work\n  CLOSED: [2026-11-02 Mon]\n\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-checked",
+        "checked": false
+      },
+      "expectedBody": "TODO Work\n\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "TODO Work",
+          "status": "todo"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "write-remove-entry-keep-other",
+      "body": "DONE Work\n  CLOSED: [2026-11-02 Mon] SCHEDULED: <2026-11-03 Tue>\n\n# Native\n- [ ] native\n",
+      "expected": [
+        {
+          "syntax": "todoseq"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ],
+      "mutation": {
+        "kind": "set-checked",
+        "checked": false
+      },
+      "expectedBody": "TODO Work\n   SCHEDULED: <2026-11-03 Tue>\n\n# Native\n- [ ] native\n",
+      "expectedAfter": [
+        {
+          "syntax": "todoseq",
+          "rawText": "TODO Work",
+          "status": "todo"
+        },
+        {
+          "id": "note.md#0"
+        }
+      ]
+    },
+    {
+      "id": "reject-status-review",
+      "body": "TODO Work\n",
+      "expected": [
+        {
+          "status": "todo"
+        }
+      ],
+      "mutation": {
+        "kind": "set-field",
+        "key": "status",
+        "value": "review"
+      },
+      "error": true
+    },
+    {
+      "id": "reject-status-None",
+      "body": "TODO Work\n",
+      "expected": [
+        {
+          "status": "todo"
+        }
+      ],
+      "mutation": {
+        "kind": "set-field",
+        "key": "status",
+        "value": null
+      },
+      "error": true
+    },
+    {
+      "id": "indented-fence-and-quote-are-notes",
+      "body": "TODO Parent\n  ```md\n  TODO code\n  - [ ] code\n  ```\n  > - [ ] quoted\n\n- [x] child\n",
+      "expected": [
+        {
+          "id": "note.md#todoseq:0",
+          "progress": {
+            "done": 1,
+            "total": 1
+          }
+        },
+        {
+          "id": "note.md#0"
+        },
+        {
+          "id": "note.md#1",
+          "parentId": "note.md#todoseq:0"
+        }
+      ]
     }
   ]
 }

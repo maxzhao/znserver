@@ -57,26 +57,27 @@ type translationFlight struct {
 	err    error
 }
 
-func (v *Vault) Translate(ctx context.Context, rel string, cfg TranslateConfig) (Translation, error) {
+// translationSource validates the saved source before deriving exactly one cache path.
+func (v *Vault) translationSource(rel string, cfg TranslateConfig) (string, string, string, TranslateConfig, error) {
 	rel = strings.TrimPrefix(path.Clean("/"+rel), "/")
 	if err := v.CheckVisible(rel); err != nil {
-		return Translation{}, err
+		return "", "", "", cfg, err
 	}
 	if strings.HasPrefix(rel, "translate-cache/") {
-		return Translation{}, &TranslateError{"UNSUPPORTED_FILE", "translation cache files cannot be translated"}
+		return "", "", "", cfg, &TranslateError{"UNSUPPORTED_FILE", "translation cache files cannot be translated"}
 	}
 	switch strings.ToLower(filepath.Ext(rel)) {
 	case ".md", ".markdown", ".txt", ".rst", ".adoc":
 	default:
-		return Translation{}, &TranslateError{"UNSUPPORTED_FILE", "allowed extensions: md, markdown, txt, rst, adoc"}
+		return "", "", "", cfg, &TranslateError{"UNSUPPORTED_FILE", "allowed extensions: md, markdown, txt, rst, adoc"}
 	}
 	note, err := v.ReadNote(rel)
 	if err != nil {
-		return Translation{}, err
+		return "", "", "", cfg, err
 	}
 	settings, err := v.GetSettings()
 	if err != nil {
-		return Translation{}, err
+		return "", "", "", cfg, err
 	}
 	if cfg.TargetLanguage == "" {
 		cfg.TargetLanguage = "简体中文"
@@ -89,9 +90,59 @@ func (v *Vault) Translate(ctx context.Context, rel string, cfg TranslateConfig) 
 	}
 	key := TranslationCacheKey(settings.ProjectPathPrefix+rel, note.Body, cfg.TargetLanguage)
 	cacheRel := "translate-cache/" + key + ".md"
-	if v.IsExcluded(cacheRel) {
-		return Translation{}, os.ErrNotExist
+	return settings.ProjectPathPrefix + rel, note.Body, cacheRel, cfg, nil
+}
+
+// derivedCachePath deliberately bypasses exclusions only here. Symlinks are not
+// cache files: never let this exception grant access to another vault path.
+func (v *Vault) derivedCachePath(cacheRel string) (string, error) {
+	abs, err := SafeJoin(v.root, cacheRel)
+	if err != nil {
+		return "", &TranslateError{"CACHE_UNREADABLE", "cannot safely access translation cache"}
 	}
+	for _, p := range []string{filepath.Join(v.root, "translate-cache"), abs} {
+		info, e := os.Lstat(p)
+		if errors.Is(e, os.ErrNotExist) {
+			continue
+		}
+		if e != nil || info.Mode()&os.ModeSymlink != 0 {
+			return "", &TranslateError{"CACHE_UNREADABLE", "cannot safely access translation cache"}
+		}
+	}
+	return abs, nil
+}
+func (v *Vault) readDerivedCache(cacheRel string) (Translation, error) {
+	abs, err := v.derivedCachePath(cacheRel)
+	if err != nil {
+		return Translation{}, err
+	}
+	info, err := os.Lstat(abs)
+	if errors.Is(err, os.ErrNotExist) {
+		return Translation{CacheHit: false}, nil
+	}
+	if err != nil || !info.Mode().IsRegular() {
+		return Translation{}, &TranslateError{"CACHE_UNREADABLE", "existing cache is not a readable regular file"}
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return Translation{}, &TranslateError{"CACHE_UNREADABLE", "existing translation cache cannot be read"}
+	}
+	return Translation{true, cacheRel, string(data)}, nil
+}
+func (v *Vault) TranslationCacheStatus(rel string, cfg TranslateConfig) (Translation, error) {
+	_, _, cacheRel, _, err := v.translationSource(rel, cfg)
+	if err != nil {
+		return Translation{}, err
+	}
+	return v.readDerivedCache(cacheRel)
+}
+func (v *Vault) Translate(ctx context.Context, rel string, cfg TranslateConfig) (Translation, error) {
+	source, body, cacheRel, cfg, err := v.translationSource(rel, cfg)
+	if err != nil {
+		return Translation{}, err
+	}
+	key := cacheRel
+
 	flight := &translationFlight{done: make(chan struct{})}
 	actual, loaded := translationFlights.LoadOrStore(v.root+"\n"+key, flight)
 	if loaded {
@@ -104,30 +155,20 @@ func (v *Vault) Translate(ctx context.Context, rel string, cfg TranslateConfig) 
 		}
 	}
 	defer func() { close(flight.done); translationFlights.Delete(v.root + "\n" + key) }()
-	flight.result, flight.err = v.translateOne(ctx, settings.ProjectPathPrefix+rel, note.Body, cacheRel, cfg)
+	flight.result, flight.err = v.translateOne(ctx, source, body, cacheRel, cfg)
 	return flight.result, flight.err
 }
 
 func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string, cfg TranslateConfig) (Translation, error) {
-	abs, err := v.visibleJoin(v.root, cacheRel)
+	cached, err := v.readDerivedCache(cacheRel)
+	if err != nil || cached.CacheHit {
+		return cached, err
+	}
+	abs, err := v.derivedCachePath(cacheRel)
 	if err != nil {
-		if v.IsExcluded(cacheRel) {
-			return Translation{}, os.ErrNotExist
-		}
-		return Translation{}, &TranslateError{"CACHE_UNREADABLE", "cannot safely access translation cache"}
+		return Translation{}, err
 	}
-	if info, err := os.Lstat(abs); err == nil {
-		if !info.Mode().IsRegular() {
-			return Translation{}, &TranslateError{"CACHE_UNREADABLE", "existing cache is not a regular file"}
-		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			return Translation{}, &TranslateError{"CACHE_UNREADABLE", "existing translation cache cannot be read"}
-		}
-		return Translation{true, cacheRel, string(data)}, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return Translation{}, &TranslateError{"CACHE_UNREADABLE", "cannot inspect translation cache"}
-	}
+
 	key := cfg.Key
 	if cfg.KeyFile != "" {
 		data, err := os.ReadFile(cfg.KeyFile)
@@ -180,18 +221,14 @@ func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string,
 	// No metadata or wrapper is added to the provider's body-only response.
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if _, err = os.Lstat(abs); err == nil {
-		data, e := os.ReadFile(abs)
-		if e != nil {
-			return Translation{}, &TranslateError{"CACHE_UNREADABLE", "existing translation cache cannot be read"}
-		}
-		return Translation{true, cacheRel, string(data)}, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return Translation{}, &TranslateError{"CACHE_UNREADABLE", "cannot inspect translation cache before publication"}
+	cached, err = v.readDerivedCache(cacheRel)
+	if err != nil || cached.CacheHit {
+		return cached, err
 	}
-	if err = v.checkVisibleAbs(abs); err != nil {
+	if _, err = v.derivedCachePath(cacheRel); err != nil {
 		return Translation{}, err
 	}
+
 	if err = writeFileAtomic(abs, []byte(translated), v.fileMode, v.dirMode); err != nil {
 		return Translation{}, &TranslateError{"CACHE_UNREADABLE", "cannot publish translation cache"}
 	}
