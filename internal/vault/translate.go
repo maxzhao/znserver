@@ -44,6 +44,7 @@ var translationFlights = struct {
 	jobs map[string]*translationFlight
 }{jobs: make(map[string]*translationFlight)}
 var blankLines = regexp.MustCompile(`\n{3,}`)
+var translationHeading = regexp.MustCompile(`^ {0,3}#{1,6}(?:[ \t]|$)`)
 
 func NormalizeTranslationText(text string) string {
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
@@ -246,6 +247,35 @@ func translationKey(cfg TranslateConfig) (string, error) {
 	return key, nil
 }
 
+type translationStructure struct {
+	headings, fences int
+	unclosed         bool
+}
+
+func translationShape(body string) translationStructure {
+	var shape translationStructure
+	var marker byte
+	var width int
+	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		if m := fenceLineRe.FindStringSubmatch(line); m != nil {
+			if marker == 0 && (m[1][0] == '~' || !strings.Contains(m[2], "`")) {
+				marker, width = m[1][0], len(m[1])
+				shape.fences++
+				continue
+			}
+			if marker == m[1][0] && len(m[1]) >= width && strings.TrimSpace(m[2]) == "" {
+				marker = 0
+				continue
+			}
+		}
+		if marker == 0 && translationHeading.MatchString(line) {
+			shape.headings++
+		}
+	}
+	shape.unclosed = marker != 0
+	return shape
+}
+
 func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string, cfg TranslateConfig) (Translation, error) {
 	cached, err := v.readDerivedCache(cacheRel)
 	if err != nil || cached.CacheHit {
@@ -288,6 +318,10 @@ func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string,
 		return Translation{}, &TranslateError{"UPSTREAM_ERROR", fmt.Sprintf("translation provider returned HTTP %d", resp.StatusCode)}
 	}
 	var result struct {
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
 			Message      struct {
@@ -301,10 +335,19 @@ func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string,
 	if len(result.Choices) == 0 || strings.TrimSpace(result.Choices[0].Message.Content) == "" {
 		return Translation{}, &TranslateError{"EMPTY_RESPONSE", "provider returned no translated content"}
 	}
-	if result.Choices[0].FinishReason != "stop" {
-		return Translation{}, &TranslateError{"TRANSLATION_INCOMPLETE", "provider did not finish the translation; retry the note"}
-	}
 	translated := result.Choices[0].Message.Content
+	reason := result.Choices[0].FinishReason
+	sourceShape, translatedShape := translationShape(body), translationShape(translated)
+	if reason != "stop" || sourceShape != translatedShape {
+		// Only known finish-reason literals and numeric usage/structure reach errors;
+		// never forward arbitrary provider fields, source text or credentials.
+		switch reason {
+		case "stop", "length", "content_filter", "tool_calls", "insufficient_system_resource", "":
+		default:
+			reason = "unknown"
+		}
+		return Translation{}, &TranslateError{"TRANSLATION_INCOMPLETE", fmt.Sprintf("provider translation incomplete (finish_reason=%q, prompt_tokens=%d, completion_tokens=%d; headings=%d/%d, fences=%d/%d, unclosed=%t/%t)", reason, result.Usage.PromptTokens, result.Usage.CompletionTokens, translatedShape.headings, sourceShape.headings, translatedShape.fences, sourceShape.fences, translatedShape.unclosed, sourceShape.unclosed)}
+	}
 	// No metadata or wrapper is added to the provider's body-only response.
 	v.mu.Lock()
 	defer v.mu.Unlock()

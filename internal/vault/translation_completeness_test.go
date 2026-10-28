@@ -60,3 +60,39 @@ func TestTranslationCompletenessAndDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestTranslationStructuralCompleteness(t *testing.T) {
+	const source = "# Heading\n\n~~~md\n# code, not a heading\n~~~\n\n## Last\nEnd"
+	for _, test := range []struct {
+		name, translated string
+		valid            bool
+	}{
+		{"complete", "# 标题\n\n~~~md\n# code, not a heading\n~~~\n\n## 末尾\n结束", true},
+		{"missing-heading", "# 标题\n\n~~~md\n# code, not a heading\n~~~\n结束", false},
+		{"missing-fence", "# 标题\n\n## 末尾\n结束", false},
+		{"unclosed-fence", "# 标题\n\n## 末尾\n~~~md\nunfinished", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			v := maxaVault(t)
+			maxaPut(t, v, "note.md", source)
+			client := &http.Client{Transport: translationTransport(func(r *http.Request) (*http.Response, error) {
+				data, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": test.translated}}}, "usage": map[string]int{"prompt_tokens": 10000, "completion_tokens": 4096}})
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(data))), Header: make(http.Header)}, nil
+			})}
+			_, err := v.Translate(context.Background(), "note.md", TranslateConfig{Key: "test-only-key", Client: client})
+			if test.valid {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			var te *TranslateError
+			if !errors.As(err, &te) || te.Code != "TRANSLATION_INCOMPLETE" || !strings.Contains(te.Message, "completion_tokens=4096") || !strings.Contains(te.Message, "prompt_tokens=10000") || !strings.Contains(te.Message, "finish_reason=\"stop\"") {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(v.root, "translate-cache")); !os.IsNotExist(err) {
+				t.Fatal("structurally incomplete result published", err)
+			}
+		})
+	}
+}
