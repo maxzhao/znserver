@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type TranslateConfig struct {
@@ -292,6 +293,11 @@ func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string,
 	requestBody := make(map[string]any, len(cfg.ExtraBody)+4)
 	for name, value := range cfg.ExtraBody {
 		requestBody[name] = value
+	}
+	// deepseek-flash's small default output budget can truncate whole notes.
+	// Preserve explicit extraBody budgets and other models' provider contracts.
+	if _, supplied := requestBody["max_tokens"]; !supplied && cfg.Model == "deepseek-flash" {
+		requestBody["max_tokens"] = min(384*1024, max(8192, 2*utf8.RuneCountInString(body)+1024))
 	}
 	// Reserved values are always server-owned, even if extraBody supplies them.
 	requestBody["model"], requestBody["temperature"], requestBody["stream"], requestBody["messages"] = cfg.Model, cfg.Temperature, false, messages

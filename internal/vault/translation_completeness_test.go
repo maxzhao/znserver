@@ -96,3 +96,34 @@ func TestTranslationStructuralCompleteness(t *testing.T) {
 		})
 	}
 }
+
+func TestTranslationOutputBudget(t *testing.T) {
+	for _, test := range []struct {
+		name, model string
+		extra       map[string]json.RawMessage
+		want        int
+	}{
+		{"default-deepseek", "deepseek-flash", nil, 8192},
+		{"explicit-budget", "deepseek-flash", map[string]json.RawMessage{"max_tokens": json.RawMessage("16384")}, 16384},
+		{"other-model", "other-model", nil, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			v := maxaVault(t)
+			maxaPut(t, v, "note.md", "saved source")
+			client := &http.Client{Transport: translationTransport(func(r *http.Request) (*http.Response, error) {
+				var request map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Fatal(err)
+				}
+				got, present := request["max_tokens"]
+				if (test.want == 0 && present) || (test.want > 0 && got != float64(test.want)) {
+					t.Errorf("unexpected output budget: %v", got)
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"完整译文\"}}]}")), Header: make(http.Header)}, nil
+			})}
+			if _, err := v.Translate(context.Background(), "note.md", TranslateConfig{Key: "test-only-key", Model: test.model, ExtraBody: test.extra, Client: client}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
