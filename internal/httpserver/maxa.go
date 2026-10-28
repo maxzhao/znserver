@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ZenNotes/znserver/internal/config"
 	"github.com/ZenNotes/znserver/internal/vault"
 )
 
@@ -120,9 +121,25 @@ func (s *Server) createCanvas(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, meta)
 }
+func translationConfig(v *vault.Vault, source string) (vault.TranslateConfig, error) {
+	// Preserve the 404 boundary for excluded sources, even with invalid config.
+	if err := v.CheckVisible(source); err != nil {
+		return vault.TranslateConfig{}, err
+	}
+	cfg, err := config.ResolveTranslation()
+	if err != nil {
+		return vault.TranslateConfig{}, &vault.TranslateError{Code: "TRANSLATE_CONFIG_INVALID", Message: err.Error()}
+	}
+	return vault.TranslateConfig{Key: cfg.APIKey, KeyFile: cfg.APIKeyFile, Endpoint: cfg.Endpoint, Model: cfg.Model, TargetLanguage: cfg.TargetLanguage, Temperature: cfg.Temperature, ExtraBody: cfg.ExtraBody}, nil
+}
 func (s *Server) translationCacheStatus(w http.ResponseWriter, r *http.Request) {
-	cfg := s.currentConfig()
-	result, err := s.currentVault().TranslationCacheStatus(r.URL.Query().Get("path"), vault.TranslateConfig{TargetLanguage: cfg.TranslateTargetLanguage})
+	v, source := s.currentVault(), r.URL.Query().Get("path")
+	cfg, err := translationConfig(v, source)
+	if err != nil {
+		s.writeTranslation(w, vault.Translation{}, err)
+		return
+	}
+	result, err := v.TranslationCacheStatus(source, cfg)
 	s.writeTranslation(w, result, err)
 }
 func (s *Server) translate(w http.ResponseWriter, r *http.Request) {
@@ -133,8 +150,13 @@ func (s *Server) translate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	cfg := s.currentConfig()
-	result, err := s.currentVault().Translate(r.Context(), req.Path, vault.TranslateConfig{Key: cfg.DeepSeekAPIKey, KeyFile: cfg.DeepSeekAPIKeyFile, Model: cfg.TranslateModel, TargetLanguage: cfg.TranslateTargetLanguage, Temperature: cfg.TranslateTemperature})
+	v := s.currentVault()
+	cfg, err := translationConfig(v, req.Path)
+	if err != nil {
+		s.writeTranslation(w, vault.Translation{}, err)
+		return
+	}
+	result, err := v.Translate(r.Context(), req.Path, cfg)
 	s.writeTranslation(w, result, err)
 }
 func (s *Server) writeTranslation(w http.ResponseWriter, result vault.Translation, err error) {
@@ -147,7 +169,7 @@ func (s *Server) writeTranslation(w http.ResponseWriter, result vault.Translatio
 				code = 400
 			case "MISSING_API_KEY":
 				code = 503
-			case "CACHE_UNREADABLE":
+			case "CACHE_UNREADABLE", "TRANSLATE_CONFIG_INVALID":
 				code = 500
 			}
 			writeJSON(w, code, te)

@@ -115,21 +115,34 @@ Token input: `ZENNOTES_REMOTE_TOKEN`. Graph JSON is returned from the server ind
 
 ## Translation
 
-`GET /translate/status?path=note.md` validates the saved source and reads only its derived cache. A hit returns `{cacheHit:true,cachePath,body}`; a miss returns `cacheHit:false` (other fields may be empty). It never contacts the provider, reads a key or writes. An unreadable cache returns `CACHE_UNREADABLE`.
+`GET /translate/status?path=note.md` validates the saved source and reads only its derived cache. A hit returns `{cacheHit:true,cachePath,body}`; a miss returns `cacheHit:false` (other fields may be empty). It resolves configuration (including the target language used in the cache key), but never contacts the provider, reads a separate key file, requires a key or writes. An unreadable cache returns `CACHE_UNREADABLE`.
 
-`POST /translate {"path":"note.md"}` returns `{cacheHit,cachePath,body}`. `cachePath` is vault-relative. Allowed extensions: `md, markdown, txt, rst, adoc`. Cache files and excluded source paths are rejected before provider/write effects. Both translation endpoints may read exactly the cache file derived from a validated source even when `translate-cache/` is excluded; POST may atomically create that file. Listings, search and every other API retain exclusions. Cache symlinks are rejected. Server-only environment settings:
+`POST /translate {"path":"note.md"}` returns `{cacheHit,cachePath,body}`. `cachePath` is vault-relative. Allowed extensions: `md, markdown, txt, rst, adoc`. Cache files and excluded source paths are rejected before provider/write effects. Both translation endpoints may read exactly the cache file derived from a validated source even when `translate-cache/` is excluded; POST may atomically create that file. Listings, search and every other API retain exclusions. Cache symlinks are rejected. Provider settings are resolved separately on **every translation and cache-status request**: explicit environment override > machine translation file > defaults. File edits apply on the next request, without restarting. Maxa owns syncing this file; the server only reads it.
 
-| Setting | Default |
-| --- | --- |
-| `ZENNOTES_DEEPSEEK_API_KEY_FILE` | none; when set takes precedence over the key variable |
-| `ZENNOTES_DEEPSEEK_API_KEY` | none |
-| `ZENNOTES_TRANSLATE_MODEL` | `deepseek-flash` |
-| `ZENNOTES_TRANSLATE_TARGET_LANGUAGE` | `简体中文` |
-| `ZENNOTES_TRANSLATE_TEMPERATURE` | `0` |
+The file path is `ZENNOTES_TRANSLATE_CONFIG_FILE` when set; otherwise `${XDG_STATE_HOME:-$HOME/.local/state}/maxa/zennotes/translate.json`. A missing file contributes no settings. An unreadable file, invalid JSON or invalid field returns `TRANSLATE_CONFIG_INVALID` before provider/network/write effects, including when a cache exists. Errors name the field but never echo values or file contents.
 
-Credentials are neither serialized into host/vault settings nor exposed to clients or provider-error logs. Calls use non-streaming `POST https://api.deepseek.com/chat/completions`, preserving Markdown/code/paths/identifiers and taking `choices[0].message.content`. Only that body is atomically published, with no cache metadata or wrapper added. Simultaneous identical-key requests are coalesced. A readable cache hit needs no key/network; an existing unreadable cache is not overwritten. Failures publish no cache file.
+```json
+{"version":1,"preset":"light_text","endpoint":"https://api.deepseek.com/chat/completions","apiKey":"<secret>","model":"deepseek-flash","temperature":0,"targetLanguage":"简体中文","extraBody":{}}
+```
 
-Errors are JSON `{code,message}`: `UNSUPPORTED_FILE` (400), `MISSING_API_KEY` (503), `UPSTREAM_ERROR` (502), `CACHE_UNREADABLE` (500), `EMPTY_RESPONSE` (502). Excluded path access is 404.
+- `version` must be `1`; `endpoint`, when supplied, must be an absolute HTTP(S) URL.
+- `apiKey`, `model`, and `targetLanguage`, when supplied, must be non-empty strings. `temperature` must be a finite number; `preset` is an optional informational string.
+- `extraBody` must be an object. Its fields are merged into the Chat Completions request, but never override `model`, `messages`, `stream`, or `temperature`.
+- The entire file is validated even if environment settings override some fields. A cache read needs no key; a configured separate key file is read only on a provider cache miss.
+
+| Environment override | File field | Default |
+| --- | --- | --- |
+| `ZENNOTES_DEEPSEEK_API_KEY_FILE`, then `ZENNOTES_DEEPSEEK_API_KEY` | `apiKey` | no key |
+| — | `endpoint` | `https://api.deepseek.com/chat/completions` |
+| `ZENNOTES_TRANSLATE_MODEL` | `model` | `deepseek-flash` |
+| `ZENNOTES_TRANSLATE_TARGET_LANGUAGE` | `targetLanguage` | `简体中文` |
+| `ZENNOTES_TRANSLATE_TEMPERATURE` | `temperature` | `0` |
+
+Unset environment variables inherit the file/default value. Explicit temperature `0` overrides a nonzero file value; malformed, empty or non-finite temperature is a configuration error, not silent zero. Empty model/language/config-path overrides are also errors. An explicitly empty key/key-file override clears credentials rather than falling back (cache reads still work; an uncached translation returns `MISSING_API_KEY`).
+
+Credentials are neither serialized into host/vault settings nor exposed to clients or provider-error logs. Calls use non-streaming POST to the resolved `endpoint`, preserving Markdown/code/paths/identifiers and taking `choices[0].message.content`. Only that body is atomically published, with no cache metadata or wrapper added. Simultaneous identical-key requests are coalesced. A readable cache hit needs no key/network; an existing unreadable cache is not overwritten. Failures publish no cache file.
+
+Errors are JSON `{code,message}`: `UNSUPPORTED_FILE` (400), `MISSING_API_KEY` (503), `UPSTREAM_ERROR` (502), `CACHE_UNREADABLE` (500), `TRANSLATE_CONFIG_INVALID` (500), `EMPTY_RESPONSE` (502). Excluded path access is 404.
 
 Cache normalization equals `lua/maxa/session/buffer_translate.lua`: normalize CRLF/CR to LF; remove each line's trailing spaces/tabs; trim ASCII whitespace; collapse 3+ LF to 2. Hash normalized UTF-8 bytes with SHA-256, then hash `projectPathPrefix + vaultPath + "\n" + semanticHash + "\n" + targetLanguage`. Cache file: `translate-cache/<key>.md`.
 

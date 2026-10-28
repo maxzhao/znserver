@@ -21,6 +21,7 @@ type TranslateConfig struct {
 	Key, KeyFile, Model, TargetLanguage, Endpoint string
 	Temperature                                   float64
 	Client                                        *http.Client
+	ExtraBody                                     map[string]json.RawMessage
 }
 type Translation struct {
 	CacheHit  bool   `json:"cacheHit"`
@@ -178,11 +179,17 @@ func (v *Vault) translateOne(ctx context.Context, source, body, cacheRel string,
 		key = strings.TrimSpace(string(data))
 	}
 	if strings.TrimSpace(key) == "" {
-		return Translation{}, &TranslateError{"MISSING_API_KEY", "set ZENNOTES_DEEPSEEK_API_KEY_FILE or ZENNOTES_DEEPSEEK_API_KEY on the server"}
+		return Translation{}, &TranslateError{"MISSING_API_KEY", "no translation API key; sync the Maxa translate preset or check the server translation config"}
 	}
 	messages := []map[string]string{{"role": "system", "content": strings.Join([]string{
 		"You are a translation engine for project documents.", "Translate the provided document into " + cfg.TargetLanguage + ".", "Return only the translated document.", "Do not add explanations, summaries, prefaces, or code fences around the whole answer.", "Preserve Markdown structure, headings, lists, tables, links, inline code, and fenced code blocks.", "Do not translate code identifiers, URLs, file paths, command names, or markup syntax."}, "\n")}, {"role": "user", "content": "Target language: " + cfg.TargetLanguage + "\nSource path: " + source + "\n\nDocument:\n" + body}}
-	data, err := json.Marshal(map[string]any{"model": cfg.Model, "temperature": cfg.Temperature, "stream": false, "messages": messages})
+	requestBody := make(map[string]any, len(cfg.ExtraBody)+4)
+	for name, value := range cfg.ExtraBody {
+		requestBody[name] = value
+	}
+	// Reserved values are always server-owned, even if extraBody supplies them.
+	requestBody["model"], requestBody["temperature"], requestBody["stream"], requestBody["messages"] = cfg.Model, cfg.Temperature, false, messages
+	data, err := json.Marshal(requestBody)
 	if err != nil {
 		return Translation{}, &TranslateError{"UPSTREAM_ERROR", "invalid translation configuration"}
 	}

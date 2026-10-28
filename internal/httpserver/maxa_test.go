@@ -92,6 +92,7 @@ func TestMaxaHTTPVersionsExclusionsAndPending(t *testing.T) {
 }
 
 func TestMaxaTranslationStatusExemptionHTTP(t *testing.T) {
+	isolateHTTPTranslationConfig(t)
 	t.Setenv("ZENNOTES_VAULT_PATH", t.TempDir())
 	v, err := vault.New(t.TempDir(), vault.Options{})
 	if err != nil {
