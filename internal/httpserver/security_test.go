@@ -242,7 +242,7 @@ func TestForwardedProtoIgnoredWithoutTrust(t *testing.T) {
 		t.Fatalf("login: %d", resp.StatusCode)
 	}
 	for _, c := range resp.Cookies() {
-		if c.Name == "zennotes_session" && c.Secure {
+		if strings.HasPrefix(c.Name, "zennotes_session_") && c.Secure {
 			t.Fatalf("Secure cookie set despite untrusted X-Forwarded-Proto")
 		}
 	}
@@ -271,7 +271,7 @@ func TestForwardedProtoHonouredWhenTrusted(t *testing.T) {
 	}
 	var found bool
 	for _, c := range resp.Cookies() {
-		if c.Name == "zennotes_session" && c.Secure {
+		if strings.HasPrefix(c.Name, "zennotes_session_") && c.Secure {
 			found = true
 		}
 	}
@@ -515,6 +515,148 @@ func TestCORSRejectionLoggedOncePerOrigin(t *testing.T) {
 	}
 	if other != 1 {
 		t.Errorf("expected exactly one log for other.example.com, got %d:\n%s", other, out)
+	}
+}
+
+func TestSessionCookieIsolation(t *testing.T) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	servers := make([]*httptest.Server, 2)
+	for i := range servers {
+		servers[i], _ = newTestServer(t, config.Config{
+			VaultPath: t.TempDir(), Bind: "127.0.0.1:7878", AuthToken: "secret-token",
+		})
+		serverURL, _ := url.Parse(servers[i].URL)
+		name := "zennotes_session_" + serverURL.Port()
+		resp, err := client.Post(servers[i].URL+"/api/session/login", "application/json", strings.NewReader(`{"token":"secret-token"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("login status: %d", resp.StatusCode)
+		}
+		found := false
+		for _, cookie := range resp.Cookies() {
+			if cookie.Name != name {
+				t.Fatalf("login cookie name = %q, want %q", cookie.Name, name)
+			}
+			if cookie.Path == "/" && cookie.MaxAge == 0 {
+				found = true
+				if !cookie.HttpOnly || cookie.Secure || cookie.SameSite != http.SameSiteStrictMode || time.Until(cookie.Expires) < sessionTTL-time.Minute || time.Until(cookie.Expires) > sessionTTL {
+					t.Fatal("session cookie attributes or lifetime changed")
+				}
+			}
+		}
+		if !found {
+			t.Fatal("login did not set the per-port session cookie")
+		}
+	}
+	for _, server := range servers {
+		resp, err := client.Get(server.URL + "/api/vault")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("one server overwrote the other's session: %d", resp.StatusCode)
+		}
+	}
+
+	firstURL, _ := url.Parse(servers[0].URL)
+	var live *http.Cookie
+	for _, cookie := range jar.Cookies(firstURL) {
+		if cookie.Name == "zennotes_session_"+firstURL.Port() {
+			live = cookie
+		}
+	}
+	if live == nil {
+		t.Fatal("missing first server session")
+	}
+	legacy, _ := http.NewRequest(http.MethodGet, servers[0].URL+"/api/vault", nil)
+	legacy.AddCookie(&http.Cookie{Name: "zennotes_session", Value: live.Value})
+	resp, err := http.DefaultClient.Do(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("legacy cookie authenticated: %d", resp.StatusCode)
+	}
+
+	resp, err = client.Post(servers[0].URL+"/api/session/logout", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("logout status: %d", resp.StatusCode)
+	}
+	cleared := false
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name != live.Name {
+			t.Fatalf("logout cleared a different cookie: %q", cookie.Name)
+		}
+		if cookie.Path == "/" && cookie.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatal("logout did not clear its per-port cookie")
+	}
+	for i, server := range servers {
+		resp, err := client.Get(server.URL + "/api/vault")
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		want := http.StatusOK
+		if i == 0 {
+			want = http.StatusUnauthorized
+		}
+		if resp.StatusCode != want {
+			t.Fatalf("server %d after logout: status %d, want %d", i, resp.StatusCode, want)
+		}
+	}
+}
+
+func TestSessionCookieSurvivesServerRestart(t *testing.T) {
+	t.Setenv("ZENNOTES_CONFIG_PATH", filepath.Join(t.TempDir(), "server.json"))
+	cfg := config.Config{
+		VaultPath: t.TempDir(), Bind: "127.0.0.1:0", AuthToken: "secret-token", PersistSessions: true,
+	}
+	first, v := newTestServer(t, cfg)
+	client := &http.Client{Jar: loginAndJar(t, first, "secret-token")}
+	address := first.Listener.Addr().String()
+	first.Close()
+
+	restarted := httptest.NewUnstartedServer(New(v, nil, nil, cfg).Router())
+	if err := restarted.Listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.Listener = listener
+	restarted.Start()
+	defer restarted.Close()
+	resp, err := client.Get(restarted.URL + "/api/session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var status struct {
+		Authenticated bool `json:"authenticated"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || !status.Authenticated {
+		t.Fatal("persisted browser session did not survive a server restart on the same port")
 	}
 }
 

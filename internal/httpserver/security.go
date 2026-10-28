@@ -18,10 +18,7 @@ import (
 	"github.com/ZenNotes/znserver/internal/config"
 )
 
-const (
-	sessionCookieName = "zennotes_session"
-	sessionTTL        = 30 * 24 * time.Hour
-)
+const sessionTTL = 30 * 24 * time.Hour
 
 type sessionStore struct {
 	mu       sync.Mutex
@@ -467,9 +464,19 @@ func sessionStatusPayload(authenticated bool, cfg config.Config) map[string]any 
 	}
 }
 
+func (s *Server) sessionCookieName(r *http.Request) string {
+	// Use the listener address, not Host (which may name a reverse proxy).
+	address := s.currentConfig().Bind
+	if local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+		address = local.String()
+	}
+	_, port, _ := net.SplitHostPort(address)
+	return "zennotes_session_" + port
+}
+
 func (s *Server) sessionCookie(r *http.Request, token string, expiresAt time.Time) *http.Cookie {
 	cookie := &http.Cookie{
-		Name:  sessionCookieName,
+		Name:  s.sessionCookieName(r),
 		Value: token,
 		// One path supports canonical and legacy routes across browser upgrades.
 		Path:     config.NormalizeBasePath(s.currentConfig().BasePath) + "/",
@@ -496,7 +503,7 @@ func (s *Server) expireOldAPICookie(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) requestAuthenticatedViaSession(r *http.Request) bool {
-	cookie, err := r.Cookie(sessionCookieName)
+	cookie, err := r.Cookie(s.sessionCookieName(r))
 	if err != nil {
 		return false
 	}
@@ -565,7 +572,7 @@ func (s *Server) sessionLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) sessionLogout(w http.ResponseWriter, r *http.Request) {
 	for _, cookie := range r.Cookies() {
-		if cookie.Name == sessionCookieName {
+		if cookie.Name == s.sessionCookieName(r) {
 			s.sessions.delete(cookie.Value)
 		}
 	}

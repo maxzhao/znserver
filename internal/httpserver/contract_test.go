@@ -142,12 +142,13 @@ func TestSelfHostedHTTPContract(t *testing.T) {
 				}
 				client := &http.Client{Jar: jar}
 				apiURL, _ := url.Parse(server.URL + base + "/api/session")
-				jar.SetCookies(apiURL, []*http.Cookie{{Name: sessionCookieName, Value: "old-narrow-cookie", Path: base + "/api"}})
+				sessionName := "zennotes_session_" + apiURL.Port()
+				jar.SetCookies(apiURL, []*http.Cookie{{Name: sessionName, Value: "old-narrow-cookie", Path: base + "/api"}})
 				login := request(client, "POST", "/session/login", map[string]string{"token": token}, false)
 				decode(login, 200)
 				validCookie := false
 				for _, cookie := range login.Cookies() {
-					if cookie.Name == sessionCookieName && cookie.Value != "" && cookie.Path == base+"/" {
+					if cookie.Name == sessionName && cookie.Value != "" && cookie.Path == base+"/" {
 						validCookie = true
 					}
 				}
