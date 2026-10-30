@@ -190,6 +190,7 @@ func (s *Server) registerProtectedRoutes(r chi.Router) {
 	r.Get("/translate/status", s.translationCacheStatus)
 	r.Post("/translate", s.translate)
 	r.Post("/canvas/create", s.createCanvas)
+	r.Get("/peers", s.peers)
 	r.Post("/session/rotate-token", s.sessionRotateToken)
 
 	r.Get("/vault", s.vaultInfo)

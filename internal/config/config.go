@@ -48,10 +48,13 @@ type Config struct {
 	BehindTLS     bool  `json:"-"`
 	// PersistSessions saves browser sessions to <data>/sessions.json so they
 	// survive a server restart. Opt-in via ZENNOTES_PERSIST_SESSIONS.
-	PersistSessions bool        `json:"-"`
-	TrustedProxies  []net.IPNet `json:"-"`
-	VaultFileMode   fs.FileMode `json:"-"`
-	VaultDirMode    fs.FileMode `json:"-"`
+	PersistSessions bool `json:"-"`
+	// PeersFile is an optional deployment-owned JSON list of sibling servers
+	// (ZENNOTES_PEERS_FILE), read on each GET /api/peers request.
+	PeersFile      string      `json:"-"`
+	TrustedProxies []net.IPNet `json:"-"`
+	VaultFileMode  fs.FileMode `json:"-"`
+	VaultDirMode   fs.FileMode `json:"-"`
 }
 
 func configFilePath() string {
@@ -134,6 +137,7 @@ func Load() Config {
 	cfg.DisableWatcher = envEnabled("ZENNOTES_DISABLE_WATCHER")
 	cfg.BehindTLS = envEnabled("ZENNOTES_BEHIND_TLS")
 	cfg.PersistSessions = envEnabled("ZENNOTES_PERSIST_SESSIONS")
+	cfg.PeersFile = strings.TrimSpace(os.Getenv("ZENNOTES_PEERS_FILE"))
 	cfg.TrustedProxies = parseCIDRListEnv("ZENNOTES_TRUSTED_PROXIES")
 	if v := parseInt64Env("ZENNOTES_MAX_ASSET_BYTES"); v > 0 {
 		cfg.MaxAssetBytes = v

@@ -465,13 +465,7 @@ func sessionStatusPayload(authenticated bool, cfg config.Config) map[string]any 
 }
 
 func (s *Server) sessionCookieName(r *http.Request) string {
-	// Use the listener address, not Host (which may name a reverse proxy).
-	address := s.currentConfig().Bind
-	if local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
-		address = local.String()
-	}
-	_, port, _ := net.SplitHostPort(address)
-	return "zennotes_session_" + port
+	return "zennotes_session_" + s.listenerPort(r)
 }
 
 func (s *Server) sessionCookie(r *http.Request, token string, expiresAt time.Time) *http.Cookie {

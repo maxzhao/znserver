@@ -156,6 +156,10 @@ Reference-generated vectors (`TestMaxaTranslationCacheVectors`):
 | `.maxa/notes/你好.md` | `"# 标题\n\n\n\n正文\t \r\n"` | English | `6d6e338654a25b5406df74307860b55053f95bf95fee80b51d88b8f24e3944ec` |
 | `empty.md` | `"\r\n \t\r"` | 简体中文 | `0baceca4bf6e472d8998bc4dcb36b4808236ad42c4dc38857d097ec4c96519d3` |
 
+## Sibling servers
+
+Optional `ZENNOTES_PEERS_FILE` names a deployment-owned JSON file `{"projects":[{"name":"<label>","port":<1..65535>}]}`, re-read on every request. Authenticated `GET /peers` returns `{"projects":[{name,port,current,online}]}` in file order: entries with blank names or invalid ports are skipped, `current` matches the accepting listener port, and `online` comes from a 700 ms loopback `/api/healthz` probe. An unset or missing file returns `{"projects":[]}`; an unreadable or invalid file returns 500. Paths and credentials are never returned. The Web client lists these projects in the sidebar vault header menu and opens `<current protocol>//<current host>:<port>/` in a new tab; each server keeps its own login.
+
 ## Fork release assets and build provenance
 
 Repositories: `maxzhao/znserver`, `maxzhao/zennotes`, `maxzhao/tui`; matching `ZenNotes/*` repositories remain upstream remotes for manual merges only. Versions are `X.Y.Z-maxa.N` (tags `vX.Y.Z-maxa.N`). Default versions: server `2.77.0-maxa.2`, CLI `0.11.0-maxa.1`.
