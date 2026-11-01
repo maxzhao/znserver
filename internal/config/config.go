@@ -51,10 +51,11 @@ type Config struct {
 	PersistSessions bool `json:"-"`
 	// PeersFile is an optional deployment-owned JSON list of sibling servers
 	// (ZENNOTES_PEERS_FILE), read on each GET /api/peers request.
-	PeersFile      string      `json:"-"`
-	TrustedProxies []net.IPNet `json:"-"`
-	VaultFileMode  fs.FileMode `json:"-"`
-	VaultDirMode   fs.FileMode `json:"-"`
+	ExtensionsGlobalRoot string      `json:"-"`
+	PeersFile            string      `json:"-"`
+	TrustedProxies       []net.IPNet `json:"-"`
+	VaultFileMode        fs.FileMode `json:"-"`
+	VaultDirMode         fs.FileMode `json:"-"`
 }
 
 func configFilePath() string {
@@ -138,6 +139,7 @@ func Load() Config {
 	cfg.BehindTLS = envEnabled("ZENNOTES_BEHIND_TLS")
 	cfg.PersistSessions = envEnabled("ZENNOTES_PERSIST_SESSIONS")
 	cfg.PeersFile = strings.TrimSpace(os.Getenv("ZENNOTES_PEERS_FILE"))
+	cfg.ExtensionsGlobalRoot = strings.TrimSpace(os.Getenv("ZENNOTES_EXTENSIONS_GLOBAL_ROOT"))
 	cfg.TrustedProxies = parseCIDRListEnv("ZENNOTES_TRUSTED_PROXIES")
 	if v := parseInt64Env("ZENNOTES_MAX_ASSET_BYTES"); v > 0 {
 		cfg.MaxAssetBytes = v
