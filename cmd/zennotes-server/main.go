@@ -67,6 +67,7 @@ func main() {
 	}
 
 	srv := httpserver.New(v, w, dist, cfg)
+	defer srv.Close()
 	httpSrv := &http.Server{
 		Addr:         cfg.Bind,
 		Handler:      srv.Router(),
@@ -90,6 +91,7 @@ func main() {
 
 	<-ctx.Done()
 	log.Printf("shutting down…")
+	srv.Close()
 
 	shutdownCtx, stopShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stopShutdown()

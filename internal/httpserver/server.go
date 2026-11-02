@@ -45,6 +45,7 @@ type Server struct {
 	loginLimiter    *attemptLimiter
 	wsRejectLimiter *attemptLimiter
 	loggedOrigins   sync.Map // origin -> struct{}; dedupes CORS-rejection logs
+	extensions      *extensionSupervisor
 }
 
 func init() {
@@ -65,6 +66,7 @@ func New(v *vault.Vault, w *watcher.Watcher, static fs.FS, cfg config.Config) *S
 		sessionsPath = config.SessionsPath()
 	}
 	server := &Server{
+		extensions:      newExtensionSupervisor(),
 		Vault:           v,
 		Watcher:         w,
 		Static:          static,
@@ -181,6 +183,9 @@ func (s *Server) Router() http.Handler {
 }
 
 func (s *Server) registerProtectedRoutes(r chi.Router) {
+	r.Get("/ext", s.listExtensions)
+	r.Get("/ext/{name}/web/*", s.extensionStatic)
+	r.HandleFunc("/ext/{name}/svc/*", s.extensionProxy)
 	r.Get("/links/outgoing", s.linksOutgoing)
 	r.Get("/links/backlinks", s.linksBacklinks)
 	r.Get("/links/unresolved", s.linksUnresolved)

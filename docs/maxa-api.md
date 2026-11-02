@@ -160,9 +160,20 @@ Reference-generated vectors (`TestMaxaTranslationCacheVectors`):
 
 Optional `ZENNOTES_PEERS_FILE` names a deployment-owned JSON file `{"projects":[{"name":"<label>","port":<1..65535>}]}`, re-read on every request. Authenticated `GET /peers` returns `{"projects":[{name,port,current,online}]}` in file order: entries with blank names or invalid ports are skipped, `current` matches the accepting listener port, and `online` comes from a 700 ms loopback `/api/healthz` probe. An unset or missing file returns `{"projects":[]}`; an unreadable or invalid file returns 500. Paths and credentials are never returned. The Web client lists these projects in the sidebar vault header menu and opens `<current protocol>//<current host>:<port>/` in a new tab; each server keeps its own login.
 
+## Ability Web extensions
+
+Authenticated `GET /api/ext` discovers `<vault>/abilities/<name>/web/extension.json` and optional `ZENNOTES_EXTENSIONS_GLOBAL_ROOT/<name>/web/extension.json` on each request; project packages shadow global packages. It returns sorted `{extensions:[{name,source,title,views,module,styles,service,version,error}]}`. Invalid entries contain only `name`, `source`, `error`. Schema 1 manifests declare `title`, ESM `module`, optional CSS `styles`, nonempty `views:[{id,title}]`, and optional `service:{command:[argv...],health:"/health"}`. Names/view IDs use lowercase kebab-case, at most 64 characters. Unknown fields, traversal, and files escaping the package's `web/` are rejected. Version is the first 12 SHA-256 hex characters over manifest bytes and module/style sizes and mtimes.
+
+- `GET /api/ext/<name>/web/<path>` serves confined regular files with `Cache-Control: no-cache`; JS/MJS use `text/javascript`.
+- Any method on `/api/ext/<name>/svc/<path>` starts/joins the service and streams its response, preserving query, status and end-to-end headers without forwarding client `Authorization`/`Cookie`. All routes also work under `ZENNOTES_BASE_PATH`.
+- Commands run in the physical package root with `{root}`, `{project_root}`, `{port}` substitution; inherited environment adds `ZENNOTES_EXT_PORT` and `MAXA_PROJECT_ROOT`. Trusted services **must bind only `127.0.0.1`**; the supervisor allocates/probes/proxies only loopback and does not sandbox extension code. Logs append to `<project>/.maxa/tmp/web-extensions/<name>.log`.
+- Health must become 2xx within 30 seconds. Failure returns 502 `{"error":"extension service failed to start","log":".maxa/tmp/web-extensions/<name>.log"}`. Exit/version change restarts on the next proxy request. Ten minutes without requests/streams triggers SIGTERM, then SIGKILL after five seconds; server shutdown stops all children (including startup).
+
+The Web host supports `#ext/<name>/<view>` and virtual pane tabs. Modules export `activate(api)` returning `{[id]:Component}` (an explicit `{views:{[id]:Component}}` wrapper is also accepted); the host supplies React 18, `htm`-bound `html`, vault list/read/open/change subscription, same-origin service URL/fetch/EventSource helpers, and live light/dark theme tokens `--ext-*`. Extensions must not bundle React. Successful activation and styles are reused per version; tab-local errors offer retry. `service.events` delivers native `MessageEvent` objects and returns an unsubscribe function. Desktop clients do not discover extensions; empty discovery leaves existing UI/CSP/service-worker behavior unchanged.
+
 ## Fork release assets and build provenance
 
-Repositories: `maxzhao/znserver`, `maxzhao/zennotes`, `maxzhao/tui`; matching `ZenNotes/*` repositories remain upstream remotes for manual merges only. Versions are `X.Y.Z-maxa.N` (tags `vX.Y.Z-maxa.N`). Default versions: server `2.77.0-maxa.2`, CLI `0.11.0-maxa.1`.
+Repositories: `maxzhao/znserver`, `maxzhao/zennotes`, `maxzhao/tui`; matching `ZenNotes/*` repositories remain upstream remotes for manual merges only. Versions are `X.Y.Z-maxa.N` (tags `vX.Y.Z-maxa.N`). Default versions: server `2.77.0-maxa.3`, CLI `0.11.0-maxa.1`.
 
 | Product | Linux assets | SHA-256 file |
 | --- | --- | --- |
