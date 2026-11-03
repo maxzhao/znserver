@@ -181,7 +181,7 @@ The client displays saved matching valid views first, then remaining views by ma
 
 ## Fork release assets and build provenance
 
-Repositories: `maxzhao/znserver`, `maxzhao/zennotes`, `maxzhao/tui`; matching `ZenNotes/*` repositories remain upstream remotes for manual merges only. Versions are `X.Y.Z-maxa.N` (tags `vX.Y.Z-maxa.N`). Default versions: server `2.77.0-maxa.5`, CLI `0.11.0-maxa.1`.
+Repositories: `maxzhao/znserver`, `maxzhao/zennotes`, `maxzhao/tui`; matching `ZenNotes/*` repositories remain upstream remotes for manual merges only. Versions are `X.Y.Z-maxa.N` (tags `vX.Y.Z-maxa.N`). Default versions: server `2.77.0-maxa.6`, CLI `0.11.0-maxa.1`.
 
 | Product | Linux assets | SHA-256 file |
 | --- | --- | --- |
