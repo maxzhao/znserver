@@ -46,6 +46,7 @@ type Server struct {
 	wsRejectLimiter *attemptLimiter
 	loggedOrigins   sync.Map // origin -> struct{}; dedupes CORS-rejection logs
 	extensions      *extensionSupervisor
+	activityOrderMu sync.Mutex
 }
 
 func init() {
@@ -183,6 +184,8 @@ func (s *Server) Router() http.Handler {
 }
 
 func (s *Server) registerProtectedRoutes(r chi.Router) {
+	r.Get("/maxa/activity-order", s.activityOrder)
+	r.Put("/maxa/activity-order", s.activityOrder)
 	r.Get("/ext", s.listExtensions)
 	r.Get("/ext/{name}/web/*", s.extensionStatic)
 	r.HandleFunc("/ext/{name}/svc/*", s.extensionProxy)

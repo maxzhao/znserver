@@ -35,6 +35,7 @@ type extensionManifest struct {
 	Module  string            `json:"module"`
 	Styles  []string          `json:"styles,omitempty"`
 	Views   []extensionView   `json:"views"`
+	Order   *int              `json:"order,omitempty"`
 	Service *extensionService `json:"service,omitempty"`
 }
 type extension struct {
@@ -45,6 +46,7 @@ type extension struct {
 	Module             string          `json:"module,omitempty"`
 	Styles             []string        `json:"styles"`
 	Service            bool            `json:"service"`
+	Order              *int            `json:"order,omitempty"`
 	Version            string          `json:"version,omitempty"`
 	Error              *string         `json:"error"`
 	manifest           extensionManifest
@@ -141,7 +143,7 @@ func readExtension(name, source, root, project string) extension {
 	// Explicit null is not an optional array/object; schema 1 accepts only declared types.
 	var fields map[string]json.RawMessage
 	_ = json.Unmarshal(raw, &fields)
-	if !extensionFields(fields, "schema", "title", "module", "styles", "views", "service") {
+	if !extensionFields(fields, "schema", "title", "module", "styles", "views", "order", "service") {
 		return invalid("invalid manifest fields")
 	}
 	var viewFields []map[string]json.RawMessage
@@ -151,7 +153,10 @@ func readExtension(name, source, root, project string) extension {
 			return invalid("invalid view fields")
 		}
 	}
-	for _, k := range []string{"styles", "service"} {
+	if m.Order != nil && (*m.Order < 0 || *m.Order > 10000) {
+		return invalid("order must be an integer from 0 to 10000")
+	}
+	for _, k := range []string{"styles", "service", "order"} {
 		if v, ok := fields[k]; ok && bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
 			return invalid("invalid " + k)
 		}
@@ -208,6 +213,7 @@ func readExtension(name, source, root, project string) extension {
 		}
 		fmt.Fprintf(hash, "\x00%d\x00%d", st.Size(), st.ModTime().UnixNano())
 	}
+	e.Order = m.Order
 	e.Title = m.Title
 	e.Views = m.Views
 	e.Service = m.Service != nil

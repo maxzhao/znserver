@@ -75,6 +75,10 @@ func compileExclusions(patterns []string) *exclusionMatcher {
 	return matcher
 }
 func (m *exclusionMatcher) excluded(rel string) bool {
+	// Project metadata is reachable only through its scoped Maxa API, never as an asset.
+	if rel == "_meta.yaml" {
+		return true
+	}
 	excluded := false
 	for _, r := range m.rules {
 		if r.re.MatchString(rel) {
