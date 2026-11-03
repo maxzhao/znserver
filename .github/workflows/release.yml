@@ -64,15 +64,17 @@ jobs:
         working-directory: server
       - run: go run ./cmd/prepare-web -manifest web-artifact/manifest.json -output web/dist && go test -tags=embed_web ./web
         working-directory: server
-      - name: Cross-compile Linux binaries and checksums
+      - name: Cross-compile Linux and Android binaries and checksums
         working-directory: server
         run: |
           mkdir release
-          for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -tags=embed_web -trimpath -ldflags="-s -w" -o "release/zennotes-server-linux-$arch" ./cmd/zennotes-server
+          for target in linux/amd64 linux/arm64 android/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -tags=embed_web -trimpath -ldflags="-s -w" -o "release/zennotes-server-$os-$arch" ./cmd/zennotes-server
           done
           cp LICENSE web-artifact/manifest.json release/
-          cd release && sha256sum zennotes-server-linux-* > SHA256SUMS
+          cd release && sha256sum zennotes-server-* > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: server-release

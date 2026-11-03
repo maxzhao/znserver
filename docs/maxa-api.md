@@ -181,12 +181,12 @@ The client displays saved matching valid views first, then remaining views by ma
 
 ## Fork release assets and build provenance
 
-Repositories: `maxzhao/znserver`, `maxzhao/zennotes`, `maxzhao/tui`; matching `ZenNotes/*` repositories remain upstream remotes for manual merges only. Versions are `X.Y.Z-maxa.N` (tags `vX.Y.Z-maxa.N`). Default versions: server `2.77.0-maxa.6`, CLI `0.11.0-maxa.1`.
+Repositories: `maxzhao/znserver`, `maxzhao/zennotes`, `maxzhao/tui`; matching `ZenNotes/*` repositories remain upstream remotes for manual merges only. Versions are `X.Y.Z-maxa.N` (tags `vX.Y.Z-maxa.N`). Default versions: server `2.77.0-maxa.1`, CLI `0.11.0-maxa.1`.
 
-| Product | Linux assets | SHA-256 file |
+| Product | Linux and Android assets | SHA-256 file |
 | --- | --- | --- |
-| Server | `zennotes-server-linux-amd64`, `zennotes-server-linux-arm64` | `SHA256SUMS` |
-| CLI | `zn_<version>_linux_amd64.tar.gz`, `zn_<version>_linux_arm64.tar.gz` (containing `zn`) | `checksums.txt` |
+| Server | `zennotes-server-linux-amd64`, `zennotes-server-linux-arm64`, `zennotes-server-android-arm64` | `SHA256SUMS` |
+| CLI | `zn_<version>_linux_amd64.tar.gz`, `zn_<version>_linux_arm64.tar.gz`, `zn_<version>_android_arm64.tar.gz` (each containing one regular `zn`) | `checksums.txt` |
 
 Manual release workflows require reviewed full source commit hashes and fork-suffixed tags and create drafts only. Server release additionally checks out a full `maxzhao/zennotes` `web_commit`, builds with Node 24/npm, verifies/re-attests the locally built artifact with `scripts/pin-fork-web.mjs`, runs `cmd/prepare-web`, then compiles with `-tags=embed_web`. The release includes `manifest.json` recording the fork Web commit, lockfile hash, file inventory and archive hash. No upstream Web archive URL is retained. The committed `web-artifact/manifest.json` pins a locally rebuilt fork Web artifact and has no remote archive URL. CI rebuilds that source from `maxzhao/zennotes`; a local/Docker build needs the matching local archive generated first. Plain local `go build ./cmd/zennotes-server` remains API-only. Local binaries built with `-tags=embed_web` serve the Web commit recorded in `web-artifact/manifest.json`.
 
